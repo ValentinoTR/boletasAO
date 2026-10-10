@@ -1,8 +1,0 @@
-project_id = "boletasAO"
-
-[functions.ao-api]
-enabled = true
-entrypoint = "./functions/ao-api/index.ts"
-# El código valida la sesión con auth.getUser y comprueba la membresía.
-# La activación inicial usa un token de un solo uso, nunca la clave pública.
-verify_jwt = false
