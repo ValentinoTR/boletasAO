@@ -29,7 +29,11 @@
     for(let i=0;i<remainder;i++)sorted[i].value++;
     return parts.map((p,i)=>({...p,price:(Number(result[i].value)/100).toFixed(2)}));
   };
-  const api={cents,realCost,allocate,validateParts,repriceParts};
+  const available=unit=>unit.precio_venta===null&&unit.in_stock!==false;
+  const quantity=value=>{const text=String(value).trim();if(!/^\d{1,6}$/.test(text)||Number(text)>100000)throw Error('Ingresa una cantidad entera válida.');return Number(text);};
+  const productStock=(product,units)=>product.managed?units.filter(u=>available(u)&&String(u.product_id)===String(product.id)).length:Number(product.reference_stock||0);
+  const filterStock=(products,units,mode)=>products.filter(p=>mode==='replenish'?productStock(p,units)===0:productStock(p,units)>0);
+  const api={cents,realCost,allocate,validateParts,repriceParts,available,quantity,productStock,filterStock};
   if(typeof window!=='undefined')window.AOSuiteCore=api;
   if(typeof module!=='undefined')module.exports=api;
 })();

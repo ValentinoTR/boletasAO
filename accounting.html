@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="es" data-theme="light">
 <head>
+<script src="assets/theme.js?v=4851625ffc8c"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Contabilizador · AO NEXUS</title>
@@ -576,7 +577,7 @@
     .comp-table .comp-input{width:100%;}
   }
 </style>
-<style>.sidebar,.mobile-nav,.nav-mobile{display:none!important}.app{grid-template-columns:1fr!important}.main{margin-left:0!important}.main-header .header-actions #logout-btn{display:none!important}body{background:var(--bg)}.main-content{max-width:1450px;margin:auto}</style></head>
+<style>.sidebar,.mobile-nav,.nav-mobile{display:none!important}.app{grid-template-columns:1fr!important}.main{margin-left:0!important}.main-header .header-actions #logout-btn{display:none!important}body{background:var(--bg)}.main-content{max-width:1450px;margin:auto}</style><style>.inventory-tabs{display:flex;gap:10px;margin-bottom:20px}.inventory-tabs .active{border-color:var(--accent);color:var(--accent)}#purchase-stock-fields{margin-bottom:18px}[hidden]{display:none!important}</style></head>
 <body>
 
 <!-- Iconos (trazos estilo Lucide) -->
@@ -797,13 +798,14 @@
             <div class="card-body">
               <div class="form-section">
                 <div class="form-section-title">Datos de la compra</div>
+<div id="purchase-stock-fields" class="form-grid"><div class="field"><label for="c-quantity">¿Cuántas unidades estás trayendo?</label><input id="c-quantity" type="number" min="0" max="1000" step="1" value="1" required><div class="help">Unidades iguales. Para un combo con piezas distintas, indica 0 y agrega sus componentes.</div></div><div class="field"><label for="c-product">Producto de mi web · opcional</label><select id="c-product"><option value="">Sin vincular al catálogo</option></select><div class="help">Las nuevas unidades actualizarán el stock de este producto.</div></div></div>
                 <div class="form-grid">
                   <div class="field span-2">
                     <label for="c-name">Nombre de la compra</label>
                     <input type="text" id="c-name" placeholder="Ej: Combo Ryzen 7 + B850 + RAM 32GB" autocomplete="off">
                   </div>
                   <div class="field">
-                    <label for="c-cost">Costo del producto</label>
+                    <label for="c-cost">Costo total de la compra</label>
                     <div class="input-group">
                       <select id="c-currency" aria-label="Moneda">
                         <option value="PEN">S/</option>
@@ -935,7 +937,7 @@
       </section>
 
       <!-- ===================== INVENTARIO ===================== -->
-      <section class="view-section" data-view="inventario">
+      <section class="view-section" data-view="inventario"><div class="inventory-tabs"><button class="btn btn-secondary active" type="button" data-inventory-mode="available">En stock</button><button class="btn btn-secondary" type="button" data-inventory-mode="replenish">Para reponer</button></div>
         <div class="card">
           <div class="stat-strip">
             <div><div class="stat-label">Productos distintos</div><div class="stat-value num" id="inv-productos">0</div></div>
@@ -947,7 +949,7 @@
         <div class="card">
           <div class="card-head">
             <div>
-              <h2 class="card-title">Stock pendiente de venta</h2>
+              <h2 class="card-title">Disponibilidad de productos</h2>
               <p class="card-sub">Componentes que ya compraste pero todavía no vendes, agrupados por nombre. El costo de cada componente es el que registraste en su compra.</p>
             </div>
           </div>
@@ -1356,6 +1358,8 @@ async function loadFromSupabase(opts){
           name: comp.nombre,
           sale: comp.precio_venta === null || comp.precio_venta === undefined ? null : Number(comp.precio_venta),
           costo: comp.costo === null || comp.costo === undefined ? null : Number(comp.costo),
+          inStock: comp.in_stock !== false,
+          productId: comp.product_id,
           saleCost: comp.sale_cost === null || comp.sale_cost === undefined ? null : Number(comp.sale_cost),
           sugerido: comp.precio_sugerido === null || comp.precio_sugerido === undefined ? null : Number(comp.precio_sugerido),
           fechaVenta: comp.fecha_venta || null,
@@ -1367,7 +1371,7 @@ async function loadFromSupabase(opts){
     lastSyncAt = new Date();
     setStatus('Sincronizado · ' + lastSyncAt.toLocaleTimeString('es-PE', {hour:'2-digit', minute:'2-digit'}));
     renderAll();
-    if(window.parent!==window) window.parent.AOSuite?.refresh().catch(()=>{});
+    if(window.parent!==window) window.parent.AOSuite?.refreshAfterMutation().catch(()=>{});
   }catch(e){
     if(seq !== loadSeq) return;
     console.error(e);
@@ -1429,7 +1433,7 @@ function comboDerived(combo){
   // esa pieza puntual. No se descuenta el costo de lo que sigue en stock.
   const ganancia = derivedComps.reduce((s,c) => s + (c.ganancia !== null ? c.ganancia : 0), 0);
   // Plata todavía metida en piezas de este combo que no se han vendido.
-  const stockValor = derivedComps.reduce((s,c) => s + (c.sale === null ? c.costoFinal : 0), 0);
+  const stockValor = derivedComps.reduce((s,c) => s + (c.sale === null && c.inStock ? c.costoFinal : 0), 0);
 
   return { costoReal, comps: derivedComps, recuperado, ganancia, stockValor };
 }
@@ -1444,7 +1448,7 @@ function getAllComponentsFlat(){
         comboId: combo.id, comboName: combo.name, proveedor: combo.proveedor,
         categoria: combo.categoria, fecha, name: comp.name,
         costo: comp.costoFinal, costoEstimado: comp.estimado, sale: comp.sale, ganancia: comp.ganancia, margen: comp.margen,
-        estado: comp.sale !== null ? 'vendido' : 'pendiente',
+        estado: comp.sale !== null ? 'vendido' : comp.inStock ? 'pendiente' : 'retirado',
         fechaVenta: comp.fechaVenta,
         compradorNombre: comp.compradorNombre, compradorDocumento: comp.compradorDocumento
       });
@@ -1502,6 +1506,9 @@ function comboMatchesSearch(c, q){
 }
 
 function renderCompras(){
+  const select=document.getElementById('c-product'),selected=select.value;
+  select.innerHTML='<option value="">Sin vincular al catálogo</option>'+stockProducts().map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');select.value=selected;
+
   const container = document.getElementById('combos-container');
   document.getElementById('compras-count').textContent = combos.length;
 
@@ -1521,7 +1528,7 @@ function renderCompras(){
   const items = combos.map((c, idx) => ({ c, idx, der: comboDerived(c) }))
     .filter(({ c, der }) => {
       if(!comboMatchesSearch(c, q)) return false;
-      if(filtro === 'stock') return der.comps.some(x => x.sale === null);
+      if(filtro === 'stock') return der.comps.some(x => x.sale === null && x.inStock);
       if(filtro === 'vendidas') return der.comps.length > 0 && der.comps.every(x => x.sale !== null);
       if(filtro === 'sin-comp') return der.comps.length === 0;
       return true;
@@ -1567,14 +1574,14 @@ function renderCompras(){
                 <div class="comp-name">${escapeHtml(comp.name)}</div>
                 ${comp.sale !== null ? buyerChipHtml(c.id, comp) : ''}
               </td>
-              <td class="hide-sm"><span class="badge ${comp.sale !== null ? 'vendido' : 'pendiente'}">${comp.sale !== null ? 'Vendido' : 'Pendiente'}</span></td>
+              <td class="hide-sm"><span class="badge ${comp.sale !== null ? 'vendido' : 'pendiente'}">${comp.sale !== null ? 'Vendido' : comp.inStock ? 'En stock' : 'Retirado del stock'}</span></td>
               <td class="num" data-label="Costo"><div class="input-affix sm" style="width:128px;margin-left:auto;"><span class="affix">${comp.estimado ? '≈' : 'S/'}</span>
                 <input type="number" class="comp-input comp-costo-input" step="0.01" min="0" inputmode="decimal"
                   value="${comp.costo !== null ? comp.costo : ''}" placeholder="${comp.estimado ? comp.costoFinal.toFixed(2) : 'Opcional'}" aria-label="Costo de ${escapeHtml(comp.name)}"
                   title="${comp.estimado ? 'Estimado: parte del costo total de la compra, repartida entre las piezas sin costo propio. Escribe un número para fijarlo tú mismo.' : 'Costo que escribiste para esta pieza.'}"
                   data-cid="${c.id}" data-pid="${comp.id}"></div></td>
               <td class="num" data-label="Venta"><div class="input-affix sm" style="width:128px;margin-left:auto;"><span class="affix">S/</span>
-                <input type="number" class="comp-input comp-sale-input" step="0.01" min="0" inputmode="decimal"
+                <input type="number" ${!comp.inStock ? 'disabled' : ''} class="comp-input comp-sale-input" step="0.01" min="0" inputmode="decimal"
                   value="${comp.sale === null ? '' : comp.sale}" placeholder="Pendiente" aria-label="Venta de ${escapeHtml(comp.name)}"
                   data-cid="${c.id}" data-pid="${comp.id}"></div></td>
               <td class="num" data-label="Ganancia">${gananciaHtml}</td>
@@ -1760,6 +1767,8 @@ async function addComponent(cid, btn){
     return;
   }
 
+  const countRaw=prompt('¿Cuántas unidades de '+name+' estás trayendo?','1');if(countRaw===null)return;
+  const componentQuantity=Number(countRaw);if(!/^\d+$/.test(countRaw.trim())||!Number.isInteger(componentQuantity)||componentQuantity<1||componentQuantity>1000){toast('Indica una cantidad entera entre 1 y 1000.','error');return;}
   const costoRaw = costoInput.value.trim();
   const costo = costoRaw === '' ? null : parseFloat(costoRaw);
   const saleRaw = saleInput.value.trim();
@@ -1778,7 +1787,7 @@ async function addComponent(cid, btn){
   }
 
   setBusy(btn, true, 'Agregando...');
-  const { error } = await db.from('COMPONENTES').insert(payload);
+  const { error } = await db.from('COMPONENTES').insert(Array.from({length:componentQuantity},()=>({...payload})));
 
   if(error){
     setBusy(btn, false);
@@ -1797,6 +1806,7 @@ async function updateComponentSale(cid, pid, rawValue){
   const value = trimmed === '' ? null : parseFloat(trimmed);
   const clean = value === null || isNaN(value) ? null : value;
   const { comp } = findComponent(cid, pid);
+  if(comp&&!comp.inStock){toast('Esta unidad está retirada del stock. Registra nuevas unidades para vender.','error');return;}
   const eraPendiente = !comp || comp.sale === null;
   const teniaComprador = !!(comp && (comp.compradorNombre || comp.compradorDocumento));
 
@@ -1932,7 +1942,13 @@ syncCurrencyUI();
 updateCostoRealPreview();
 
 // Vacía el formulario y lo deja listo para registrar una compra nueva.
+document.getElementById('c-product').addEventListener('change',event=>{
+  const product=stockProducts().find(p=>String(p.id)===event.target.value);
+  if(product)document.getElementById('c-name').value=product.name;
+});
+let purchaseRequest=crypto.randomUUID();
 function resetPurchaseForm(){
+  purchaseRequest=crypto.randomUUID();document.getElementById("c-quantity").value="1";document.getElementById("c-product").value="";
   ['c-name','c-cost','c-rate','c-tax','c-proveedor','c-pedido','c-courier','c-peso','c-envio-kg','c-tax-usa','c-imp-peru','c-otros'].forEach(id => {
     document.getElementById(id).value = '';
   });
@@ -1947,6 +1963,7 @@ function resetPurchaseForm(){
 
 // Cambia el panel entre "Nueva compra" y "Editar compra" (mismo formulario para las dos cosas).
 function setEditModeUI(editing){
+  document.getElementById("purchase-stock-fields").hidden=editing;
   document.getElementById('purchase-panel-title').textContent = editing ? 'Editar compra' : 'Nueva compra';
   document.getElementById('purchase-panel-hint').textContent = editing
     ? 'Modifica los datos de esta compra y guarda los cambios. El costo real se recalcula solo.'
@@ -2005,6 +2022,8 @@ document.getElementById('purchase-form').addEventListener('submit', async e => {
 
   const name = nameInput.value.trim();
   const cost = parseFloat(costInput.value);
+  const countText=document.getElementById('c-quantity').value.trim(),count=Number(countText);
+  if(!editingId&&(!/^\d+$/.test(countText)||!Number.isInteger(count)||count<0||count>1000)){toast('Indica una cantidad entera entre 0 y 1000.','error');return;}
   const nameBad = !name;
   const costBad = isNaN(cost) || cost < 0;
   [[nameInput, nameBad], [costInput, costBad]].forEach(([el, bad]) => {
@@ -2038,7 +2057,7 @@ document.getElementById('purchase-form').addEventListener('submit', async e => {
   setBusy(submitBtn, true, 'Guardando...');
   const { error } = editingId
     ? await db.from('COMPRAS').update(payload).eq('id', Number(editingId))
-    : await db.from('COMPRAS').insert(payload);
+    : await db.rpc('ao_suite_create_purchase',{request_key:purchaseRequest,purchase_data:payload,quantity:Number(document.getElementById('c-quantity').value),product_key:Number(document.getElementById('c-product').value)||null});
   setBusy(submitBtn, false);
 
   if(error){
@@ -2056,7 +2075,7 @@ document.getElementById('purchase-form').addEventListener('submit', async e => {
     return;
   }
 
-  toast('Compra "' + name + '" registrada. Ahora agrega sus componentes.');
+  toast('Compra "' + name + '" registrada'+(count?' con '+count+' unidad(es) en stock.':'. Ahora agrega sus componentes.'));
   // Limpia filtros para que la compra nueva quede visible arriba de la lista.
   document.getElementById('compras-search').value = '';
   document.getElementById('compras-filtro').value = '';
@@ -2082,7 +2101,7 @@ function renderDashboard(){
     if(row.estado === 'vendido'){
       recuperado += row.sale;
       if(row.ganancia !== null) gananciaNeta += row.ganancia;
-    }else{
+    }else if(row.estado === 'pendiente'){
       invertidoStock += row.costo;
     }
   });
@@ -2106,6 +2125,7 @@ function renderDashboard(){
   let ventasMes = 0, gananciaMes = 0, vendidosMes = 0, pendientesTotal = 0;
   flat.forEach(row => {
     if(row.estado === 'pendiente'){ pendientesTotal++; return; }
+    if(row.estado === 'retirado')return;
     const key = monthKeyOf(row.fechaVenta) || monthKeyOf(row.fecha);
     if(key === currentKey){
       ventasMes += row.sale;
@@ -2347,86 +2367,40 @@ function renderUltimasVentas(flat){
 }
 
 /* ---------------- vista: Inventario ---------------- */
+let inventoryMode='available';
+function stockProducts(){return window.parent.AOSuite?.stockProducts?.()||[];}
 function getInventoryGroups(){
-  const map = new Map();
-  combos.forEach(combo => {
-    const der = comboDerived(combo);
-    der.comps.forEach(comp => {
-      if(comp.sale !== null) return;
-      const key = comp.name.trim().toLowerCase();
-      if(!map.has(key)) map.set(key, { name: comp.name.trim(), items: [] });
-      map.get(key).items.push({ comboId: combo.id, compId: comp.id, costo: comp.costoFinal, estimado: comp.estimado, sugerido: comp.sugerido });
-    });
-  });
-  return Array.from(map.values()).map(g => {
-    const stock = g.items.length;
-    const costoTotal = g.items.reduce((s,i) => s + i.costo, 0);
-    const costoProm = stock ? costoTotal / stock : null;
-    const sugeridos = g.items.map(i => i.sugerido).filter(v => v !== null);
-    const ventaProm = sugeridos.length ? sugeridos.reduce((a,b) => a+b, 0) / sugeridos.length : null;
-    const ganancia = ventaProm !== null ? (ventaProm - costoProm) * stock : null;
-    return Object.assign({}, g, { stock, costoTotal, costoProm, ventaProm, ganancia, algunoEstimado: g.items.some(i => i.estimado) });
-  }).sort((a,b) => a.name.localeCompare(b.name));
+  const map=new Map(),products=stockProducts();
+  products.forEach(p=>map.set('p:'+p.id,{name:p.name,productId:p.id,items:[]}));
+  combos.forEach(combo=>comboDerived(combo).comps.forEach(comp=>{
+    const key=comp.productId?'p:'+comp.productId:'n:'+comp.name.trim().toLowerCase();
+    if(!map.has(key))map.set(key,{name:products.find(p=>String(p.id)===String(comp.productId))?.name||comp.name.trim(),productId:comp.productId||null,items:[]});
+    if(comp.sale===null&&comp.inStock)map.get(key).items.push({comboId:combo.id,compId:comp.id,costo:comp.costoFinal,estimado:comp.estimado,sugerido:comp.sugerido});
+  }));
+  return Array.from(map.values()).map(g=>{
+    const stock=g.items.length,costoTotal=g.items.reduce((s,i)=>s+i.costo,0),costoProm=stock?costoTotal/stock:null;
+    const prices=g.items.map(i=>i.sugerido).filter(v=>v!==null),ventaProm=prices.length?prices.reduce((s,v)=>s+v,0)/prices.length:null;
+    return {...g,stock,costoTotal,costoProm,ventaProm,ganancia:ventaProm!==null?(ventaProm-costoProm)*stock:null,algunoEstimado:g.items.some(i=>i.estimado)};
+  }).sort((a,b)=>a.name.localeCompare(b.name));
 }
-
 function renderInventario(){
-  const groups = getInventoryGroups();
-  lastInventoryGroups = groups;
-
-  let unidades = 0, valor = 0, proyectada = 0;
-  groups.forEach(g => {
-    unidades += g.stock;
-    g.items.forEach(it => { if(it.costo !== null) valor += it.costo; });
-    if(g.ganancia !== null) proyectada += g.ganancia;
-  });
-  document.getElementById('inv-productos').textContent = groups.length;
-  document.getElementById('inv-unidades').textContent = unidades;
-  document.getElementById('inv-valor').textContent = fmt(valor);
-  const pEl = document.getElementById('inv-proyectada');
-  pEl.textContent = fmtSigned(proyectada);
-  pEl.className = 'stat-value num ' + (proyectada > 0 ? 'text-gain' : proyectada < 0 ? 'text-loss' : '');
-
-  const tbody = document.querySelector('#tabla-inventario tbody');
-  if(groups.length === 0){
-    tbody.innerHTML = emptyRow(6, 'package', 'No hay stock pendiente', 'Todo lo que compraste ya está vendido.');
-    return;
-  }
-  tbody.innerHTML = groups.map((g, idx) => `
-    <tr>
-      <td>
-        <div class="strong">${escapeHtml(g.name)}</div>
-
-      </td>
-      <td class="num"><span class="badge neutral">${g.stock}</span></td>
-      <td class="num" title="${g.algunoEstimado ? 'Incluye costo estimado: repartido del costo total de alguna compra, no escrito a mano.' : ''}">${g.costoProm !== null ? (g.algunoEstimado ? '≈' : '') + fmt(g.costoProm) : '<span class="muted">—</span>'}</td>
-      <td class="num">${g.ventaProm !== null ? fmt(g.ventaProm) : '<span class="muted">—</span>'}</td>
-      <td class="num ${moneyClass(g.ganancia)}">${g.ganancia !== null ? fmtSigned(g.ganancia) : '<span class="muted">—</span>'}</td>
-      <td class="num">
-        <div class="row-actions">
-          <button class="btn btn-soft btn-sm inv-vender" data-idx="${idx}">${icon('banknote')}Vender</button>
-          <button class="btn btn-secondary btn-sm inv-edit" data-idx="${idx}">Precio sugerido</button>
-          <button class="icon-btn sm danger inv-del" data-idx="${idx}" title="Eliminar una unidad" aria-label="Eliminar una unidad">${icon('trash')}</button>
-        </div>
-      </td>
-    </tr>
-  `).join('');
-
-  const nameAt = btn => (lastInventoryGroups[Number(btn.dataset.idx)] || {}).name;
-  tbody.querySelectorAll('.inv-edit').forEach(btn => {
-    btn.addEventListener('click', () => { const n = nameAt(btn); if(n) inventarioEditar(n); });
-  });
-  tbody.querySelectorAll('.inv-vender').forEach(btn => {
-    btn.addEventListener('click', () => { const n = nameAt(btn); if(n) inventarioRegistrarVenta(n); });
-  });
-  tbody.querySelectorAll('.inv-del').forEach(btn => {
-    btn.addEventListener('click', () => { const n = nameAt(btn); if(n) inventarioEliminar(n); });
-  });
+  const all=getInventoryGroups(),available=all.filter(g=>g.stock>0),groups=all.filter(g=>inventoryMode==='replenish'?g.stock===0:g.stock>0);
+  lastInventoryGroups=groups;
+  document.querySelectorAll('[data-inventory-mode]').forEach(b=>{b.classList.toggle('active',b.dataset.inventoryMode===inventoryMode);b.setAttribute('aria-pressed',String(b.dataset.inventoryMode===inventoryMode));});
+  document.getElementById('inv-productos').textContent=available.length;
+  document.getElementById('inv-unidades').textContent=available.reduce((n,g)=>n+g.stock,0);
+  document.getElementById('inv-valor').textContent=fmt(available.reduce((n,g)=>n+g.costoTotal,0));
+  document.getElementById('inv-proyectada').textContent=fmtSigned(available.reduce((n,g)=>n+(g.ganancia||0),0));
+  const body=document.querySelector('#tabla-inventario tbody');
+  body.innerHTML=groups.length?groups.map((g,i)=>`<tr><td><div class="strong">${escapeHtml(g.name)}</div></td><td class="num"><span class="badge ${g.stock?'neutral':'pendiente'}">${g.stock||'Para reponer'}</span></td><td class="num">${g.costoProm!==null?fmt(g.costoProm):'—'}</td><td class="num">${g.ventaProm!==null?fmt(g.ventaProm):'—'}</td><td class="num ${moneyClass(g.ganancia)}">${g.ganancia!==null?fmtSigned(g.ganancia):'—'}</td><td><div class="row-actions"><button class="btn btn-secondary btn-sm inv-stock" data-idx="${i}">Modificar stock</button><button class="btn btn-soft btn-sm inv-restock" data-idx="${i}">Reponer</button>${g.stock?`<button class="btn btn-secondary btn-sm inv-edit" data-idx="${i}">Precio sugerido</button><button class="btn btn-soft btn-sm inv-vender" data-idx="${i}">Vender</button>`:''}</div></td></tr>`).join(''):emptyRow(6,'package',inventoryMode==='replenish'?'No hay productos para reponer':'No hay unidades disponibles','Registra una compra o repón un producto existente.');
+  body.querySelectorAll('.inv-stock,.inv-restock').forEach(b=>b.addEventListener('click',()=>window.parent.AOSuite?.openStockGroup(lastInventoryGroups[Number(b.dataset.idx)],b.classList.contains('inv-restock'))));
+  body.querySelectorAll('.inv-edit,.inv-vender').forEach(b=>b.addEventListener('click',()=>{const g=lastInventoryGroups[Number(b.dataset.idx)];b.classList.contains('inv-edit')?inventarioEditar(g.name,g.productId):inventarioRegistrarVenta(g.name,g.productId);}));
 }
-
-function findGroupItems(name){
+document.querySelectorAll('[data-inventory-mode]').forEach(b=>b.addEventListener('click',()=>{inventoryMode=b.dataset.inventoryMode;renderInventario();}));
+function findGroupItems(name,productId){
   const key = name.trim().toLowerCase();
   const groups = getInventoryGroups();
-  const g = groups.find(x => x.name.trim().toLowerCase() === key);
+  const g = groups.find(x => productId?String(x.productId)===String(productId):!x.productId&&x.name.trim().toLowerCase() === key);
   return g ? g.items : [];
 }
 
@@ -2437,8 +2411,8 @@ function parseMoney(raw){
   return isNaN(v) ? NaN : v;
 }
 
-async function inventarioEditar(name){
-  const items = findGroupItems(name);
+async function inventarioEditar(name,productId){
+  const items = findGroupItems(name,productId);
   if(items.length === 0) return;
   const res = await openDialog({
     title: 'Precio de venta sugerido',
@@ -2464,8 +2438,8 @@ async function inventarioEditar(name){
   await loadFromSupabase();
 }
 
-async function inventarioRegistrarVenta(name){
-  const items = findGroupItems(name);
+async function inventarioRegistrarVenta(name,productId){
+  const items = findGroupItems(name,productId);
   if(items.length === 0) return;
   const sugerido = items[0].sugerido;
   const costo = items[0].costo;
@@ -2647,18 +2621,20 @@ try{ document.getElementById('cfg-db').textContent = 'Supabase · ' + new URL(SU
 
 /* ---------------- tema ---------------- */
 function currentTheme(){ return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'; }
-function applyTheme(theme){
+function paintAccountingTheme(theme){
   document.documentElement.setAttribute('data-theme', theme);
-  try{ localStorage.setItem('ao-suite-theme', theme); }catch(e){}
+
   const meta = document.querySelector('meta[name="theme-color"]');
   if(meta) meta.setAttribute('content', theme === 'light' ? '#f5f6f8' : '#0a0b0f');
   document.querySelector('#theme-btn use').setAttribute('href', theme === 'light' ? '#i-moon' : '#i-sun');
   document.querySelectorAll('[data-theme-set]').forEach(b => b.classList.toggle('active', b.dataset.themeSet === theme));
   repaintCharts();
 }
+function applyTheme(theme){window.AOTheme.set(theme);}
+document.addEventListener('ao-theme-change',event=>paintAccountingTheme(event.detail));
 document.getElementById('theme-btn').addEventListener('click', () => applyTheme(currentTheme() === 'light' ? 'dark' : 'light'));
 document.querySelectorAll('[data-theme-set]').forEach(b => b.addEventListener('click', () => applyTheme(b.dataset.themeSet)));
-applyTheme(currentTheme());
+paintAccountingTheme(window.AOTheme.get());
 
 /* ---------------- navegación ---------------- */
 function setView(view, opts){

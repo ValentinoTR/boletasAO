@@ -18,7 +18,7 @@
     return data;
   }
   async function rpc(name, args) { const { data, error } = await client.rpc(name, args); if (error) throw error; return data; }
-  function showLogin() { ++authGeneration; member = null; user = null; delete window.AOCloud; $("appView").hidden = true; $("loginView").hidden = false; $("receiptFrame").removeAttribute("src"); $("accountingFrame").removeAttribute("src"); window.AOSuite?.logout(); document.querySelectorAll('input[type="password"]').forEach(e=>e.value=""); $("memberPassword").value=""; $("createdCredentialsText").textContent=""; $("createdCredentials").hidden=true; globalMessage(""); }
+  function showLogin() { ++authGeneration; member = null; user = null; delete window.AOCloud; $("appView").hidden = true; $("loginThemeToggle").hidden = false; $("loginView").hidden = false; $("receiptFrame").removeAttribute("src"); $("accountingFrame").removeAttribute("src"); window.AOSuite?.logout(); document.querySelectorAll('input[type="password"]').forEach(e=>e.value=""); $("memberPassword").value=""; $("createdCredentialsText").textContent=""; $("createdCredentials").hidden=true; globalMessage(""); }
   async function enter() {
     if (initializing) return; initializing = true; const generation = ++authGeneration;
     try {
@@ -41,7 +41,7 @@
         if (updateError) throw updateError;
       }, saved: () => { historyPage = 0; window.AOSuite.refreshAfterMutation().catch(()=>{}); $("accountingFrame").contentWindow?.refreshFromSuite?.(); } };
       $("userName").textContent = member.display_name; $("accountEmail").textContent = user.email; $("teamNav").hidden = member.role !== "owner";
-      $("loginView").hidden = true; $("appView").hidden = false; $("loginPassword").value = "";
+      $("loginView").hidden = true; $("loginThemeToggle").hidden = true; $("appView").hidden = false; $("loginPassword").value = "";
       if (!$("receiptFrame").getAttribute("src")) $("receiptFrame").src = "boletas.html";
       await window.AOSuite.initialize(client,member); const initialView=new URLSearchParams(location.search).get("vista"); await showView(["catalog","compras","inventario","editor","clients","ventas"].includes(initialView)?initialView:"dashboard");
     } catch (error) { if (generation === authGeneration) message("entryMessage", errorText(error)); }

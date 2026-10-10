@@ -8,9 +8,10 @@
   let products = [], purchases = [], units = [], clients = [], sales = [], receipts = [], importState = {};
   let linking, linked = new Set(), picking = [], pickResolve, blockedIds = new Set(), editingProduct;
   let temporaryPhotoURL;
-  const available = u => u.precio_venta === null;
+  const available = core.available;
   const productFor = u => products.find(p => String(p.id) === String(u.product_id));
-  const stock = p => p.managed ? units.filter(u => available(u) && String(u.product_id) === String(p.id)).length : p.reference_stock;
+  const stock = p => core.productStock(p,units);
+  let catalogueMode="available", productRequest, stockRequest, stockEditing, stockRestocking, stockExpected;
   function toast(message) { $("suiteToast").textContent = message; $("suiteToast").hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $("suiteToast").hidden = true, 6500); }
   function report(id,error) { $(id).textContent = error?.message || String(error); $(id).classList.remove("success"); }
   async function rows(client, table) {
@@ -35,8 +36,8 @@
   async function initialize(client,person) {
     ++generation; db=client; member=person; loading=null;
     $("connectionNav").hidden=member.role!=="owner"; $("importForm").hidden=member.role!=="owner";
-    if(!$("accountingFrame").getAttribute("src"))$("accountingFrame").src="accounting.html";
     await refresh();
+    if(!$("accountingFrame").getAttribute("src"))$("accountingFrame").src="accounting.html";
   }
   async function refreshAfterMutation() {
     // An earlier read may have started before the write. Finish it, then read
@@ -46,7 +47,7 @@
   }
   function logout() {
     ++generation;db=null;member=null;loading=null;products=[];purchases=[];units=[];clients=[];sales=[];receipts=[];
-    for(const id of ["productDialog","linkDialog","inventoryDialog"])if($(id).open)$(id).close();
+    for(const id of ["productDialog","linkDialog","inventoryDialog","stockDialog"])if($(id).open)$(id).close();
     $("catalogGrid").replaceChildren();$("clientList").replaceChildren();$("oldPassword").value="";
   }
   function navigate(name) {
@@ -58,24 +59,30 @@
   $("accountingFrame").addEventListener("load",()=>$("accountingFrame").contentWindow?.navigateFromSuite?.(desiredView));
   function renderCatalog() {
     const term=$("catalogSearch").value.trim().toLocaleLowerCase("es");
-    const filtered=products.filter(p=>(p.data.name+" "+p.data.brand).toLocaleLowerCase("es").includes(term));
+    const filtered=core.filterStock(products,units,catalogueMode).filter(p=>(p.data.name+" "+p.data.brand).toLocaleLowerCase("es").includes(term));
+    document.querySelectorAll('[data-stock-filter]').forEach(b=>{b.classList.toggle('active',b.dataset.stockFilter===catalogueMode);b.setAttribute('aria-pressed',String(b.dataset.stockFilter===catalogueMode));});
     const pending=products.filter(p=>!p.managed).length;
     $("catalogSummary").innerHTML=[['Productos',products.length],['Publicados',products.filter(p=>p.published).length],['Unidades disponibles',products.filter(p=>p.published).reduce((n,p)=>n+stock(p),0)]].map(([label,value])=>`<div><span>${label}</span><strong>${value}</strong></div>`).join('');
     $("catalogConnection").textContent=pending?`${pending} productos conservan la cantidad de tu catálogo anterior. Vincula sus unidades en «Compartir stock» para que las ventas actualicen su disponibilidad.`:"El stock publicado corresponde a las unidades disponibles de tu inventario. Las fotos y los precios se guardan al editar cada producto.";
     $("catalogGrid").innerHTML=filtered.length?filtered.map(p=>{
       const image=safeURL(p.data.image);
-      return `<article class="product-card">${image?`<img src="${esc(image)}" alt="${esc(p.data.name)}" loading="lazy">`:'<div class="product-no-photo">AO</div>'}<div class="product-copy"><span class="eyebrow">${esc(p.data.brand||"AO NEXUS")}</span><h2>${esc(p.data.name)}</h2><strong class="public-price">${money(p.web_price)}</strong><div class="product-status"><span class="pill ${p.published?"sent":""}">${p.published?"Publicado":"Oculto"}</span><span>${stock(p)} unidad(es)</span></div><p class="hint">${p.managed?"Stock compartido con tus ventas":"Cantidad del catálogo · pendiente de vincular"}</p><div class="suite-actions"><button class="secondary" data-edit-product="${p.id}">Editar y subir foto</button><button class="quiet" data-link-product="${p.id}">${p.managed?"Agregar unidades":"Compartir stock"}</button></div></div></article>`;
-    }).join(""):'<p class="empty">No hay productos para esta búsqueda.</p>';
+      return `<article class="product-card">${image?`<img src="${esc(image)}" alt="${esc(p.data.name)}" loading="lazy">`:'<div class="product-no-photo">AO</div>'}<div class="product-copy"><span class="eyebrow">${esc(p.data.brand||"AO NEXUS")}</span><h2>${esc(p.data.name)}</h2><strong class="public-price">${money(p.web_price)}</strong><div class="product-status"><span class="pill ${stock(p)?(p.published?"sent":""):"replenish-pill"}">${stock(p)?(p.published?"Publicado":"Oculto"):"Para reponer"}</span><span>${stock(p)} unidad(es)</span></div><p class="hint">${p.managed?"Stock compartido con tus ventas":"Cantidad del catálogo · pendiente de vincular"}</p><div class="suite-actions"><button class="secondary" data-edit-product="${p.id}">Editar y subir foto</button><button class="secondary" data-restock-product="${p.id}">Reponer</button><button class="quiet" data-stock-product="${p.id}">Modificar stock</button>${!p.managed?`<button class="quiet" data-link-product="${p.id}">Compartir stock</button>`:""}</div></div></article>`;
+    }).join(""):`<p class="empty">${catalogueMode==='replenish'?'No hay productos pendientes de reposición.':'No hay productos disponibles para esta búsqueda. Revisa «Para reponer» para registrar nuevas unidades.'}</p>`;
   }
+  document.querySelectorAll('[data-stock-filter]').forEach(b=>b.addEventListener('click',()=>{catalogueMode=b.dataset.stockFilter;renderCatalog();}));
   $("catalogSearch").addEventListener("input",renderCatalog);
   $("refreshCatalogue").addEventListener("click",()=>refresh().catch(()=>{}));
   $("catalogGrid").addEventListener("click",e=>{
     const edit=e.target.closest("[data-edit-product]"), link=e.target.closest("[data-link-product]");
     if(edit)openProduct(products.find(p=>String(p.id)===edit.dataset.editProduct));
     if(link)openLink(products.find(p=>String(p.id)===link.dataset.linkProduct));
+    const adjust=e.target.closest('[data-stock-product]'),restock=e.target.closest('[data-restock-product]');
+    if(adjust)openStock(products.find(p=>String(p.id)===adjust.dataset.stockProduct));
+    if(restock)openStock(products.find(p=>String(p.id)===restock.dataset.restockProduct),true);
   });
   function openProduct(product) {
     editingProduct=product;$("productForm").reset();$("productMessage").textContent="";
+    productRequest=crypto.randomUUID();$("productIncoming").hidden=!!product;$("productQuantity").value="1";$("productPurchaseDate").value=today();syncProductQuantity();
     $("productTitle").textContent=product?"Editar producto de mi web":"Agregar producto a mi web";
     $("productId").value=product?.id||"";
     for(const [id,key]of [["productName","name"],["productBrand","brand"],["productSub","sub"]])$(id).value=product?.data[key]||"";
@@ -102,9 +109,29 @@
       if(!data.name||!window.AO_CATEGORIES[data.category])throw Error("Indica el nombre y la categoría del producto.");
       if($("productOldPrice").value!="")data.oldPrice=core.cents($("productOldPrice").value)/100;
       const payload={data,web_price:core.cents($("productPrice").value)/100,published:$("productPublished").checked,updated_at:new Date().toISOString()};
-      const query=editingProduct?db.from("ao_products").update(payload).eq("id",editingProduct.id):db.from("ao_products").insert({...payload,managed:true,reference_stock:0});const {error}=await query;if(error)throw error;
-      await refresh();$("productDialog").close();toast("Producto guardado. Vincula sus unidades para que aparezca disponible en la web.");
+      if(editingProduct){const {error}=await db.from("ao_products").update(payload).eq("id",editingProduct.id);if(error)throw error;}
+      else {const count=core.quantity($("productQuantity").value);if(count>1000)throw Error('Registra hasta 1000 unidades por compra.');await rpc('ao_suite_create_product',{request_key:productRequest,product_data:payload,quantity:count,cost_per_unit:count?core.cents($("productUnitCost").value)/100:null,supplier:$("productSupplier").value.trim()||null,purchased_on:$("productPurchaseDate").value||today()});}
+      await refreshAfterMutation();$("productDialog").close();toast(editingProduct?"Producto actualizado.":Number($("productQuantity").value)?"Producto y unidades guardados en stock.":"Producto guardado en Para reponer.");$("accountingFrame").contentWindow?.refreshFromSuite?.();
     } catch(error){report("productMessage",error);} finally{button.disabled=false;}
+  });
+  function today(){const parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/Lima',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());const get=type=>parts.find(p=>p.type===type).value;return get('year')+'-'+get('month')+'-'+get('day');}
+  function syncProductQuantity(){const required=!editingProduct&&Number($("productQuantity").value)>0;$("productUnitCost").required=required;$("productPurchaseFields").hidden=!required;}
+  $("productQuantity").addEventListener('input',syncProductQuantity);
+  function groupUnits(product){return units.filter(u=>available(u)&&(product.id?String(u.product_id)===String(product.id):!u.product_id&&u.nombre.trim().toLocaleLowerCase('es')===product.data.name.trim().toLocaleLowerCase('es')));}
+  function openStock(product,restocking=false){
+    if(!product)return;stockEditing=product;stockRestocking=restocking;stockRequest=crypto.randomUUID();stockExpected=groupUnits(product).length;
+    $("stockForm").reset();$("stockTitle").textContent=(restocking?'Reponer · ':'Modificar stock · ')+product.data.name;
+    $("stockSummary").textContent=stockExpected+' unidad(es) disponibles'+(!product.managed&&product.id?' · '+stock(product)+' unidad(es) del catálogo anterior pendientes de vincular':'');
+    $("stockQuantityLabel").textContent=restocking?'¿Cuántas unidades estás trayendo?':'Cantidad disponible correcta';
+    $("stockQuantity").value=restocking?'1':String(product.managed===false?stock(product):stockExpected);$("stockDate").value=today();$("stockMessage").textContent='';updateStockFields();$("stockDialog").showModal();
+  }
+  function openStockGroup(group,restocking=false){openStock(products.find(p=>String(p.id)===String(group.productId))||{id:null,data:{name:group.name},managed:true},restocking);}
+  function updateStockFields(){const count=Number($("stockQuantity").value),delta=stockRestocking?count:count-stockExpected;$("stockPurchaseFields").hidden=delta<=0;$("stockCost").required=delta>0;$("stockQuantity").min=stockRestocking?'1':'0';$("stockHint").textContent=delta>0?`Se registrará una compra de ${delta} unidad(es). El costo de compra se usará para calcular la ganancia.`:delta<0?`Se retirarán ${-delta} unidad(es) del stock disponible. Se conservarán las compras y las ventas ya realizadas.`:'La cantidad disponible permanecerá igual.';}
+  $("stockQuantity").addEventListener('input',updateStockFields);
+  $("stockForm").addEventListener('submit',async e=>{
+    e.preventDefault();const button=$("stockSave");button.disabled=true;
+    try{const count=core.quantity($("stockQuantity").value),target=stockRestocking?stockExpected+count:count;const result=await rpc('ao_suite_set_stock',{request_key:stockRequest,product_key:stockEditing.id||null,product_name:stockEditing.data.name,target_quantity:target,expected_quantity:stockExpected,cost_per_unit:target>stockExpected?core.cents($("stockCost").value)/100:null,supplier:$("stockSupplier").value.trim()||null,purchased_on:$("stockDate").value||today()});await refreshAfterMutation();$("accountingFrame").contentWindow?.refreshFromSuite?.();$("stockDialog").close();toast('Stock actualizado: '+result.quantity+' unidad(es) disponibles.');}
+    catch(error){report('stockMessage',error);}finally{button.disabled=false;}
   });
   function openLink(product) {
     linking=product;linked=new Set(units.filter(u=>available(u)&&String(u.product_id)===String(product.id)).map(u=>String(u.id)));
@@ -182,5 +209,5 @@
   });
   $("inventoryDialog").addEventListener("close",()=>{if(pickResolve){const resolve=pickResolve;pickResolve=null;resolve(null);}});
   document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click",()=>$(b.dataset.close).close()));
-  window.AOSuite={initialize,refresh,refreshAfterMutation,navigate,logout,pickInventory};
+  window.AOSuite={initialize,refresh,refreshAfterMutation,navigate,logout,pickInventory,openStockGroup,stockProducts:()=>products.map(p=>({id:p.id,name:p.data.name,managed:p.managed}))};
 })();
