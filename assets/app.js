@@ -18,7 +18,7 @@
     return data;
   }
   async function rpc(name, args) { const { data, error } = await client.rpc(name, args); if (error) throw error; return data; }
-  function showLogin() { ++authGeneration; member = null; user = null; delete window.AOCloud; $("appView").hidden = true; $("loginView").hidden = false; $("receiptFrame").removeAttribute("src"); document.querySelectorAll('input[type="password"]').forEach(e=>e.value=""); $("memberPassword").value=""; $("createdCredentialsText").textContent=""; $("createdCredentials").hidden=true; globalMessage(""); }
+  function showLogin() { ++authGeneration; member = null; user = null; delete window.AOCloud; $("appView").hidden = true; $("loginView").hidden = false; $("receiptFrame").removeAttribute("src"); $("accountingFrame").removeAttribute("src"); window.AOSuite?.logout(); document.querySelectorAll('input[type="password"]').forEach(e=>e.value=""); $("memberPassword").value=""; $("createdCredentialsText").textContent=""; $("createdCredentials").hidden=true; globalMessage(""); }
   async function enter() {
     if (initializing) return; initializing = true; const generation = ++authGeneration;
     try {
@@ -29,24 +29,24 @@
       if (lookupError || !nextMember?.active) { await client.auth.signOut(); showLogin(); message("entryMessage", "Tu cuenta no tiene acceso activo a AO Nexus. Contacta al administrador."); return; }
       if (generation !== authGeneration) return;
       user = nextUser; member = nextMember;
-      window.AOCloud = { userId: user.id, api, issue: (id, receipt) => rpc("ao_issue_receipt", { request_id: id, receipt }), nextNumber: series => rpc("ao_next_number", { series_name: series }), upload: async (id, bytes) => {
+      window.AOCloud = { userId: user.id, api, inventorySelection: (item,index) => window.AOSuite.pickInventory(item,index), issue: (id, receipt) => rpc("ao_suite_issue_receipt", { request_id: id, receipt }), nextNumber: series => rpc("ao_next_number", { series_name: series }), upload: async (id, bytes) => {
         const path = "receipts/" + id + ".pdf";
         const { error: uploadError } = await client.storage.from("ao-boletas").upload(path, bytes, { contentType: "application/pdf", upsert: true });
         if (uploadError) throw uploadError;
         const { error: updateError } = await client.from("ao_receipts").update({ pdf_path: path }).eq("id", id);
         if (updateError) throw updateError;
-      }, saved: () => { historyPage = 0; } };
+      }, saved: () => { historyPage = 0; window.AOSuite.refresh().catch(()=>{}); $("accountingFrame").contentWindow?.refreshFromSuite?.(); } };
       $("userName").textContent = member.display_name; $("accountEmail").textContent = user.email; $("teamNav").hidden = member.role !== "owner";
       $("loginView").hidden = true; $("appView").hidden = false; $("loginPassword").value = "";
       if (!$("receiptFrame").getAttribute("src")) $("receiptFrame").src = "boletas.html";
-      await showView("editor");
+      await window.AOSuite.initialize(client,member); const initialView=new URLSearchParams(location.search).get("vista"); await showView(["catalog","compras","inventario","editor","clients","ventas"].includes(initialView)?initialView:"dashboard");
     } catch (error) { if (generation === authGeneration) message("entryMessage", errorText(error)); }
     finally { initializing = false; }
   }
   async function showView(name) {
     if (name === "team" && member?.role !== "owner") return;
     document.querySelectorAll("[data-view]").forEach(b => b.classList.toggle("active", b.dataset.view === name));
-    for (const view of ["editor", "history", "team", "account"]) $(view + "View").hidden = view !== name;
+    const accounting = ["dashboard","compras","inventario","ventas"].includes(name); for (const view of ["editor", "history", "team", "account", "catalog", "clients", "connection", "accounting"]) $(view + "View").hidden = view === "accounting" ? !accounting : view !== name; window.AOSuite.navigate(name);
     try { if (name === "history") await loadHistory(); if (name === "team") { await loadTeam(); $("nextNumber").value = String(await rpc("ao_next_number", { series_name: $("numberSeries").value })); } }
     catch (error) { globalMessage(errorText(error)); }
   }

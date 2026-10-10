@@ -5,3 +5,5 @@ window.AO_CONFIG = Object.freeze({
   functionName: "ao-api",
   businessEmail: "aonexuspe@gmail.com"
 });
+
+window.AO_LEGACY_CONFIG = Object.freeze({"url": "https://rqoxzaszzvwxpvomfvay.supabase.co", "key": "sb_publishable_Kph-kN-eCWBwXxVq-g51Uw_TqmUE2hZ"});

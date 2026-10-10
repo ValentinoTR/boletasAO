@@ -1,0 +1,35 @@
+"use strict";
+(() => {
+  const cents = value => {
+    const s=String(value??'').trim().replace(',','.');
+    if(!/^\d{1,9}(\.\d{1,2})?$/.test(s))throw Error('Ingresa un importe válido con hasta dos decimales.');
+    const [a,b='']=s.split('.');return Number(a)*100+Number(b.padEnd(2,'0'));
+  };
+  const realCost=p=>(p.moneda==='USD'?Number(p.costo)*Number(p.tipo_cambio):Number(p.costo))*(1+Number(p.impuesto||0)/100)+Number(p.peso_kg||0)*Number(p.costo_envio_kg||0)+Number(p.tax_usa||0)+Number(p.impuesto_peru||0)+Number(p.otros_gastos||0);
+  const allocate=(purchase,units)=>{
+    const manual=units.filter(u=>u.costo!==null&&u.costo!==undefined);
+    const missing=units.length-manual.length;
+    const remaining=Math.max(0,realCost(purchase)-manual.reduce((n,u)=>n+Number(u.costo),0));
+    return units.map(u=>({...u,calculatedCost:Math.round(((u.costo!==null&&u.costo!==undefined?Number(u.costo):(missing?remaining/missing:0))+Number.EPSILON)*100)/100,estimated:u.costo===null||u.costo===undefined}));
+  };
+  const validateParts=parts=>{
+    if(!Array.isArray(parts)||!parts.length)throw Error('Selecciona al menos una unidad.');
+    const ids=new Set();let total=0;
+    for(const p of parts){total+=cents(p.price);if(p.source==='stock'){const id=String(p.id);if(!/^\d+$/.test(id)||ids.has(id))throw Error('Una unidad de stock está repetida o es inválida.');ids.add(id);}else if(p.source==='external'){cents(p.cost);if(!String(p.name||'').trim())throw Error('Indica el nombre del producto comprado.');}else throw Error('Origen de producto inválido.');}
+    return total;
+  };
+  const repriceParts=(parts,totalCents)=>{
+    if(!Array.isArray(parts)||!parts.length)return [];
+    if(!Number.isSafeInteger(totalCents)||totalCents<0)throw Error('Importe de venta inválido.');
+    let weights=parts.map(p=>BigInt(cents(p.price))),sum=weights.reduce((n,w)=>n+w,0n);
+    if(sum===0n){weights=parts.map(()=>1n);sum=BigInt(parts.length);}
+    const total=BigInt(totalCents),result=weights.map((w,i)=>({i,value:total*w/sum,remainder:total*w%sum}));
+    const remainder=Number(total-result.reduce((n,r)=>n+r.value,0n));
+    const sorted=[...result].sort((a,b)=>a.remainder>b.remainder?-1:a.remainder<b.remainder?1:a.i-b.i);
+    for(let i=0;i<remainder;i++)sorted[i].value++;
+    return parts.map((p,i)=>({...p,price:(Number(result[i].value)/100).toFixed(2)}));
+  };
+  const api={cents,realCost,allocate,validateParts,repriceParts};
+  if(typeof window!=='undefined')window.AOSuiteCore=api;
+  if(typeof module!=='undefined')module.exports=api;
+})();
