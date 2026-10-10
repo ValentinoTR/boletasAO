@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { BUSINESS_EMAIL, MAX_REQUEST_BYTES, MailError, validateJob, validateConfig, callBridge, digestJob, seal, unseal } from "./mail-core.ts";
 
-const allowedOrigins = new Set(["https://valentinotr.github.io", ...(Deno.env.get("AO_ALLOWED_ORIGINS") || "").split(",").map(v => v.trim()).filter(Boolean)]);
+const allowedOrigins = new Set(["https://valentinotr.github.io", "https://ao-nexus-central.daringghost4.chatgpt.site", ...(Deno.env.get("AO_ALLOWED_ORIGINS") || "").split(",").map(v => v.trim()).filter(Boolean)]);
 function serverKey() {
   const modern = Deno.env.get("SUPABASE_SECRET_KEYS");
   if (modern) { const keys = JSON.parse(modern); if (typeof keys.default === "string") return keys.default; }
