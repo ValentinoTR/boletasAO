@@ -18,3 +18,8 @@ test('Las cantidades son enteras y permiten registrar un producto para futura re
   assert.equal(core.quantity('0'),0);assert.equal(core.quantity('3'),3);
   for(const value of ['','-1','1.5','abc','100001'])assert.throws(()=>core.quantity(value));
 });
+test('El costo de compra al sumar stock es opcional y vacío equivale a S/ 0.00',()=>{
+  for(const value of ['',' ',null,undefined])assert.equal(core.optionalCents(value),0);
+  assert.equal(core.optionalCents('350'),35000);assert.equal(core.optionalCents('12,5'),1250);
+  for(const value of ['-1','abc','1.234'])assert.throws(()=>core.optionalCents(value));
+});

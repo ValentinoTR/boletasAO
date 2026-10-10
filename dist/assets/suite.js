@@ -110,12 +110,12 @@
       if($("productOldPrice").value!="")data.oldPrice=core.cents($("productOldPrice").value)/100;
       const payload={data,web_price:core.cents($("productPrice").value)/100,published:$("productPublished").checked,updated_at:new Date().toISOString()};
       if(editingProduct){const {error}=await db.from("ao_products").update(payload).eq("id",editingProduct.id);if(error)throw error;}
-      else {const count=core.quantity($("productQuantity").value);if(count>1000)throw Error('Registra hasta 1000 unidades por compra.');await rpc('ao_suite_create_product',{request_key:productRequest,product_data:payload,quantity:count,cost_per_unit:count?core.cents($("productUnitCost").value)/100:null,supplier:$("productSupplier").value.trim()||null,purchased_on:$("productPurchaseDate").value||today()});}
+      else {const count=core.quantity($("productQuantity").value);if(count>1000)throw Error('Registra hasta 1000 unidades por compra.');await rpc('ao_suite_create_product',{request_key:productRequest,product_data:payload,quantity:count,cost_per_unit:count?core.optionalCents($("productUnitCost").value)/100:null,supplier:$("productSupplier").value.trim()||null,purchased_on:$("productPurchaseDate").value||today()});}
       await refreshAfterMutation();$("productDialog").close();toast(editingProduct?"Producto actualizado.":Number($("productQuantity").value)?"Producto y unidades guardados en stock.":"Producto guardado en Para reponer.");$("accountingFrame").contentWindow?.refreshFromSuite?.();
     } catch(error){report("productMessage",error);} finally{button.disabled=false;}
   });
   function today(){const parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/Lima',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());const get=type=>parts.find(p=>p.type===type).value;return get('year')+'-'+get('month')+'-'+get('day');}
-  function syncProductQuantity(){const required=!editingProduct&&Number($("productQuantity").value)>0;$("productUnitCost").required=required;$("productPurchaseFields").hidden=!required;}
+  function syncProductQuantity(){$("productPurchaseFields").hidden=!!editingProduct||!(Number($("productQuantity").value)>0);}
   $("productQuantity").addEventListener('input',syncProductQuantity);
   function groupUnits(product){return units.filter(u=>available(u)&&(product.id?String(u.product_id)===String(product.id):!u.product_id&&u.nombre.trim().toLocaleLowerCase('es')===product.data.name.trim().toLocaleLowerCase('es')));}
   function openStock(product,restocking=false){
@@ -126,11 +126,11 @@
     $("stockQuantity").value=restocking?'1':String(product.managed===false?stock(product):stockExpected);$("stockDate").value=today();$("stockMessage").textContent='';updateStockFields();$("stockDialog").showModal();
   }
   function openStockGroup(group,restocking=false){openStock(products.find(p=>String(p.id)===String(group.productId))||{id:null,data:{name:group.name},managed:true},restocking);}
-  function updateStockFields(){const count=Number($("stockQuantity").value),delta=stockRestocking?count:count-stockExpected;$("stockPurchaseFields").hidden=delta<=0;$("stockCost").required=delta>0;$("stockQuantity").min=stockRestocking?'1':'0';$("stockHint").textContent=delta>0?`Se registrará una compra de ${delta} unidad(es). El costo de compra se usará para calcular la ganancia.`:delta<0?`Se retirarán ${-delta} unidad(es) del stock disponible. Se conservarán las compras y las ventas ya realizadas.`:'La cantidad disponible permanecerá igual.';}
+  function updateStockFields(){const count=Number($("stockQuantity").value),delta=stockRestocking?count:count-stockExpected;$("stockPurchaseFields").hidden=delta<=0;$("stockQuantity").min=stockRestocking?'1':'0';$("stockHint").textContent=delta>0?`Se sumarán ${delta} unidad(es) al stock. El costo es opcional: si lo indicas se usará para calcular la ganancia; si no, quedará en S/ 0.00 y podrás completarlo después en Compras.`:delta<0?`Se retirarán ${-delta} unidad(es) del stock disponible. Se conservarán las compras y las ventas ya realizadas.`:'La cantidad disponible permanecerá igual.';}
   $("stockQuantity").addEventListener('input',updateStockFields);
   $("stockForm").addEventListener('submit',async e=>{
     e.preventDefault();const button=$("stockSave");button.disabled=true;
-    try{const count=core.quantity($("stockQuantity").value),target=stockRestocking?stockExpected+count:count;const result=await rpc('ao_suite_set_stock',{request_key:stockRequest,product_key:stockEditing.id||null,product_name:stockEditing.data.name,target_quantity:target,expected_quantity:stockExpected,cost_per_unit:target>stockExpected?core.cents($("stockCost").value)/100:null,supplier:$("stockSupplier").value.trim()||null,purchased_on:$("stockDate").value||today()});await refreshAfterMutation();$("accountingFrame").contentWindow?.refreshFromSuite?.();$("stockDialog").close();toast('Stock actualizado: '+result.quantity+' unidad(es) disponibles.');}
+    try{const count=core.quantity($("stockQuantity").value),target=stockRestocking?stockExpected+count:count;const result=await rpc('ao_suite_set_stock',{request_key:stockRequest,product_key:stockEditing.id||null,product_name:stockEditing.data.name,target_quantity:target,expected_quantity:stockExpected,cost_per_unit:target>stockExpected?core.optionalCents($("stockCost").value)/100:null,supplier:$("stockSupplier").value.trim()||null,purchased_on:$("stockDate").value||today()});await refreshAfterMutation();$("accountingFrame").contentWindow?.refreshFromSuite?.();$("stockDialog").close();toast('Stock actualizado: '+result.quantity+' unidad(es) disponibles.');}
     catch(error){report('stockMessage',error);}finally{button.disabled=false;}
   });
   function openLink(product) {
@@ -186,12 +186,30 @@
     renderPicker(item);$("inventoryDialog").showModal();return new Promise(resolve=>{pickResolve=resolve;});
   }
   function renderPicker(item) {
-    const term=$("inventorySearch").value.toLocaleLowerCase("es");
+    const term=$("inventorySearch").value.trim().toLocaleLowerCase("es");
     const eligible=units.filter(u=>available(u)&&!blockedIds.has(String(u.id))&&u.nombre.toLocaleLowerCase("es").includes(term));
-    $("inventoryUnits").innerHTML=eligible.map(u=>`<label class="unit-row"><input type="checkbox" data-pick-unit="${u.id}" ${picking.some(p=>p.source==="stock"&&String(p.id)===String(u.id))?"checked":""}><span><strong>${esc(u.nombre)}</strong><small>Unidad #${u.id}${u.serial?" · "+esc(u.serial):""}${u.estimated?" · costo repartido":""}</small></span><strong>${money(u.calculatedCost)}</strong></label>`).join("")||'<p class="empty">No hay unidades disponibles para esta búsqueda.</p>';
+    renderCatalogueOptions(term);
+    $("inventoryUnits").innerHTML=eligible.map(u=>`<label class="unit-row"><input type="checkbox" data-pick-unit="${u.id}" ${picking.some(p=>p.source==="stock"&&String(p.id)===String(u.id))?"checked":""}><span><strong>${esc(u.nombre)}</strong><small>Unidad #${u.id}${u.serial?" · "+esc(u.serial):""}${u.estimated?" · costo repartido":""}</small></span><strong>${money(u.calculatedCost)}</strong></label>`).join("")||'<p class="empty">No hay unidades registradas en tu stock para esta búsqueda. Abajo puedes elegir un producto de tu web o agregar uno de otra tienda.</p>';
     $("inventorySelected").innerHTML=picking.map((p,i)=>`<div class="selected-part"><div><strong>${esc(p.name)}</strong><small>${p.source==="stock"?"Mi stock · unidad #"+esc(p.id):"Compra para esta venta"} · costo ${money(p.source==="stock"?units.find(u=>String(u.id)===String(p.id))?.calculatedCost:p.cost)}</small></div><label>Venta (S/)<input type="number" min="0" step="0.01" value="${esc(p.price)}" data-part-price="${i}" aria-label="Precio de venta de ${esc(p.name)}"></label><button type="button" class="quiet" data-remove-part="${i}" aria-label="Quitar ${esc(p.name)}">✕</button></div>`).join("")||'<p class="empty">Selecciona lo que entregas al cliente.</p>';
     updatePickerTotal();
   }
+  // Productos de «Mi web» que aún no tienen unidades registradas (catálogo anterior o por reponer) y productos de otras tiendas.
+  function renderCatalogueOptions(term) {
+    const matches=products.filter(p=>(p.managed?stock(p)===0:true)&&(p.data.name+" "+(p.data.brand||"")).toLocaleLowerCase("es").includes(term));
+    const typed=$("inventorySearch").value.trim();
+    const rows=matches.slice(0,30).map(p=>`<div class="unit-row catalogue-row"><span><strong>${esc(p.data.name)}</strong><small>${p.managed?"Para reponer · sin unidades en stock":"Catálogo anterior · "+stock(p)+" unidad(es) sin vincular"}</small></span><strong>${money(p.web_price)}</strong><button type="button" class="secondary" data-use-catalogue="${esc(p.id)}">Agregar</button></div>`);
+    if(typed)rows.push(`<div class="unit-row catalogue-row"><span><strong>«${esc(typed)}»</strong><small>No está en mi stock · agregar como compra de otra tienda</small></span><button type="button" class="secondary" data-use-other>Agregar</button></div>`);
+    $("inventoryCatalogue").innerHTML=rows.length?`<h3>Productos de mi web y otras tiendas</h3><p class="hint">Estos productos no tienen unidades en tu stock. Al agregarlos, indica su costo real de compra para calcular tu ganancia.${matches.length>30?" Escribe en el buscador para ver el resto.":""}</p><div class="unit-list">${rows.join("")}</div>`:"";
+  }
+  $("inventoryCatalogue").addEventListener("click",e=>{
+    const use=e.target.closest("[data-use-catalogue]"),other=e.target.closest("[data-use-other]");
+    if(!use&&!other)return;
+    let name=$("inventorySearch").value.trim();
+    if(use){const p=products.find(p=>String(p.id)===use.dataset.useCatalogue);if(!p)return;name=p.data.name;$("externalPrice").value=Number(p.web_price||0).toFixed(2);}
+    $("externalName").value=name.slice(0,350);$("externalCost").value="";
+    $("inventoryMessage").classList.remove("success");$("inventoryMessage").textContent=`«${name}» está listo abajo: escribe su costo real y pulsa «Agregar a esta venta».`;
+    $("externalCost").scrollIntoView({block:"center"});$("externalCost").focus();
+  });
   function updatePickerTotal() {let n=0,valid=true;for(const p of picking){try{n+=core.cents(p.price);}catch{valid=false;}}$("inventoryTotal").textContent=valid?money(n/100):"Revisa los precios";}
   $("inventorySearch").addEventListener("input",()=>renderPicker());
   $("inventoryUnits").addEventListener("change",e=>{

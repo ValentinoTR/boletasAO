@@ -12,6 +12,10 @@ Modificar stock corrige la cantidad; Reponer registra unidades nuevas con
 su costo de compra. Los agotados conservan su ficha y foto. Al agregar
 un producto se pregunta cuantas unidades ingresan; 0 lo deja Para reponer.
 El boton Modo claro / Modo oscuro cambia todo el panel y la tienda.
+Al sumar unidades, el costo de compra es opcional (vacio = S/ 0.00; se puede
+completar despues en Compras). En la boleta, el buscador de stock tambien
+muestra los productos de Mi web y deja agregar productos de otras tiendas.
+Al emitir una boleta (con o sin correo) se abre sola la siguiente: B001-110 -> B001-111.
 
 ELIMINAR UNA BOLETA EQUIVOCADA
 Entra en Boletas emitidas, pulsa Eliminar y luego Si, eliminar boleta
