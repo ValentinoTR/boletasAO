@@ -18,7 +18,7 @@
     return data;
   }
   async function rpc(name, args) { const { data, error } = await client.rpc(name, args); if (error) throw error; return data; }
-  function showLogin() { ++authGeneration; member = null; user = null; delete window.AOCloud; $("appView").hidden = true; $("loginThemeToggle").hidden = false; $("loginView").hidden = false; $("receiptFrame").removeAttribute("src"); $("accountingFrame").removeAttribute("src"); window.AOSuite?.logout(); document.querySelectorAll('input[type="password"]').forEach(e=>e.value=""); $("memberPassword").value=""; $("createdCredentialsText").textContent=""; $("createdCredentials").hidden=true; globalMessage(""); }
+  function showLogin() { ++authGeneration; member = null; user = null; delete window.AOCloud; resetReceiptDeletion(); $("appView").hidden = true; $("loginThemeToggle").hidden = false; $("loginView").hidden = false; $("receiptFrame").removeAttribute("src"); $("accountingFrame").removeAttribute("src"); window.AOSuite?.logout(); document.querySelectorAll('input[type="password"]').forEach(e=>e.value=""); $("memberPassword").value=""; $("createdCredentialsText").textContent=""; $("createdCredentials").hidden=true; globalMessage(""); }
   async function enter() {
     if (initializing) return; initializing = true; const generation = ++authGeneration;
     try {
@@ -76,21 +76,55 @@
     finally { button.disabled = false; }
   });
   $("logoutButton").addEventListener("click", async () => { const { error } = await client.auth.signOut(); if (error) globalMessage(errorText(error)); else showLogin(); });
-  async function deleteReceipt(row, button) {
-    if (button.disabled) return;
-    const confirmed = confirm("¿Eliminar la boleta " + row.series + "-" + row.number + " de " + row.customer + "?\n\nSe quitará del historial y de las ventas. Las unidades vinculadas volverán al inventario y se actualizará la ganancia.\n\nEl número no se reutilizará. Los PDF descargados y correos ya enviados seguirán en poder de sus destinatarios.");
-    if (!confirmed) return;
-    button.disabled = true; globalMessage("");
+  let deleteReceiptState=null, deleteInFlight=false;
+  function resetReceiptDeletion(){
+    if(deleteReceiptState)deleteReceiptState.button.disabled=false;
+    deleteReceiptState=null;deleteInFlight=false;
+    if($("deleteReceiptDialog").open)$("deleteReceiptDialog").close();
+    for(const id of ["deleteReceiptConfirm","deleteReceiptCancel","deleteReceiptClose"])$(id).disabled=false;
+    $("deleteReceiptMessage").textContent="";$("deleteReceiptConfirm").textContent="Sí, eliminar boleta";
+  }
+  function closeReceiptDeletion(){if(!deleteInFlight)resetReceiptDeletion();}
+  function openReceiptDeletion(row,button){
+    if(button.disabled||deleteReceiptState)return;
+    try{
+      deleteReceiptState={row,button,generation:authGeneration};globalMessage("");
+      $("deleteReceiptSummary").textContent="Boleta "+row.series+"-"+row.number+" · "+row.customer;
+      $("deleteReceiptMessage").textContent="";$("deleteReceiptDialog").showModal();$("deleteReceiptCancel").focus();
+    }catch(error){resetReceiptDeletion();globalMessage(errorText(error));}
+  }
+  async function deleteReceipt() {
+    if(deleteInFlight||!deleteReceiptState)return;
+    const target=deleteReceiptState,{row,button}=target,current=()=>deleteReceiptState===target&&authGeneration===target.generation;
+    deleteInFlight=true;button.disabled=true;
+    for(const id of ["deleteReceiptConfirm","deleteReceiptCancel","deleteReceiptClose"])$(id).disabled=true;
+    $("deleteReceiptConfirm").textContent="Eliminando…";$("deleteReceiptMessage").textContent="Eliminando la boleta…";
     try {
       const result = await rpc("ao_suite_delete_receipt", { receipt_key: row.id });
-      $("receiptFrame").contentWindow?.resetDeletedReceipt?.(row.id);
-      historyPage = Math.min(historyPage, Math.max(0, Math.ceil((historyTotal - 1) / 50) - 1));
-      const updates = await Promise.allSettled([loadHistory(), window.AOSuite.refreshAfterMutation(), $("accountingFrame").contentWindow?.refreshFromSuite?.()]);
+      if(!current())return;
+      if(!result?.deleted||result.id!==row.id)throw Error("El servidor no confirmó la eliminación. Inténtalo de nuevo.");
+      button.closest("tr")?.remove();historyTotal=Math.max(0,historyTotal-1);
+      historyPage = Math.min(historyPage, Math.max(0, Math.ceil(historyTotal / 50) - 1));
+      const updates = await Promise.allSettled([
+        Promise.resolve().then(()=>$("receiptFrame").contentWindow?.resetDeletedReceipt?.(row.id)),
+        Promise.resolve().then(()=>loadHistory()),
+        Promise.resolve().then(()=>window.AOSuite.refreshAfterMutation()),
+        Promise.resolve().then(()=>$("accountingFrame").contentWindow?.refreshFromSuite?.())
+      ]);
+      if(!current())return;
       const restored = Number(result.restored_units || 0);
       globalMessage("Boleta " + row.series + "-" + row.number + " eliminada." + (restored ? " " + restored + (restored === 1 ? " unidad volvió" : " unidades volvieron") + " al inventario." : "") + (updates.some(r => r.status === "rejected") ? " Pulsa Actualizar para recargar los datos." : ""));
-    } catch (error) { globalMessage(errorText(error)); }
-    finally { button.disabled = false; }
+      resetReceiptDeletion();
+    } catch (error) { if(current())$("deleteReceiptMessage").textContent=errorText(error); }
+    finally { if(current()){
+      deleteInFlight=false;button.disabled=false;
+      for(const id of ["deleteReceiptConfirm","deleteReceiptCancel","deleteReceiptClose"])$(id).disabled=false;
+      $("deleteReceiptConfirm").textContent="Sí, eliminar boleta";
+    }}
   }
+  $("deleteReceiptForm").addEventListener("submit",event=>{event.preventDefault();return deleteReceipt();});
+  for(const id of ["deleteReceiptCancel","deleteReceiptClose"])$(id).addEventListener("click",closeReceiptDeletion);
+  $("deleteReceiptDialog").addEventListener("cancel",event=>{event.preventDefault();closeReceiptDeletion();});
   async function loadHistory() {
     $("historyRows").replaceChildren(); $("historyEmpty").hidden = true; $("historyCount").textContent = "Cargando…";
     let query = client.from("ao_receipts").select("id,series,number,date,customer,total_cents,pdf_path,payload,ao_deliveries(state)", { count: "exact" }).is("deleted_at", null).order("created_at", { ascending: false }).range(historyPage * 50, historyPage * 50 + 49);
@@ -110,7 +144,7 @@
       }); actions.append(pdf); }
       const remove = document.createElement("button"); remove.type = "button"; remove.className = "quiet danger"; remove.textContent = "Eliminar";
       remove.setAttribute("aria-label", "Eliminar boleta " + row.series + "-" + row.number);
-      remove.addEventListener("click", () => deleteReceipt(row, remove)); actions.append(remove);
+      remove.addEventListener("click", () => openReceiptDeletion(row, remove)); actions.append(remove);
       tr.append(actions); $("historyRows").append(tr);
     }
     $("previousHistory").disabled = historyPage === 0; $("nextHistory").disabled = (historyPage + 1) * 50 >= historyTotal; $("historyPage").textContent = "Página " + (historyPage + 1) + " de " + Math.max(1, Math.ceil(historyTotal / 50));

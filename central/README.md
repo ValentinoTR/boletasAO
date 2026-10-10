@@ -10,7 +10,7 @@ Compras, inventario, ventas, boletas, clientes y productos de la tienda pública
 4. Al crear una boleta, seleccionar las unidades disponibles o registrar los productos comprados a otra tienda para esa venta. El conjunto de una PC puede imprimirse como una sola computadora.
 5. Escribir el precio final de la boleta. Si cambia respecto de los precios de sus componentes, se distribuye entre ellos conservando cada céntimo. Los costos quedan guardados para calcular la ganancia.
 6. Al emitir, la boleta, el comprador y la venta se guardan juntos. Las unidades dejan de estar disponibles. Descargar o reenviar una boleta emitida conserva el mismo registro.
-7. Para corregir una boleta equivocada, abrir **Boletas emitidas → Eliminar** y confirmar. Desaparece del historial y de las ventas; sus unidades vuelven al inventario y se recalcula la ganancia. Las compras externas se conservan como compras reales, con sus unidades disponibles para otra venta. Después se puede emitir la boleta correcta. El número eliminado queda reservado; los correos ya enviados y los PDF descargados no se retiran.
+7. Para corregir una boleta equivocada, abrir **Boletas emitidas → Eliminar** y pulsar **Sí, eliminar boleta** en la ventana de la página. Esa ventana muestra el progreso o cualquier error y permite reintentar. Desaparece del historial y de las ventas; sus unidades vuelven al inventario y se recalcula la ganancia. Las compras externas se conservan como compras reales, con sus unidades disponibles para otra venta. Después se puede emitir la boleta correcta. El número eliminado queda reservado; los correos ya enviados y los PDF descargados no se retiran.
 8. **Mi web** e **Inventario** abren en **En stock**. Los productos agotados se conservan en **Para reponer**. **Modificar stock** corrige la cantidad disponible; una reducción retira unidades sin borrar la compra ni cambiar costos o ganancias anteriores. **Reponer** registra una nueva compra con cantidad, costo por unidad, proveedor y fecha.
 9. **Agregar producto** pregunta cuántas unidades ingresan y su costo. Con cantidad 0, guarda la ficha y la foto para una reposición futura. Al registrar una compra también se pide cantidad y se puede asociar al producto de la web. El costo de esa compra es el total, con su cambio, impuestos y envío; para combos de piezas distintas se indica 0 y se agregan los componentes con sus cantidades.
 10. El botón **Modo claro / Modo oscuro** aplica la elección al panel, formularios, boletas, tablas y ventanas. Se recuerda al volver a entrar. La tienda pública tiene su propio botón y recibe el tema elegido al abrirla desde el panel. El PDF conserva su formato original para impresión.
@@ -40,12 +40,14 @@ Las fotos nuevas se guardan en `ao-product-images`. El catálogo público recibe
 python build_suite.py
 python build_integrations.py
 python tests/check_assets.py
-node --test tests/core.test.cjs tests/catalog.test.cjs tests/stock.test.cjs tests/theme.test.cjs
+node --test tests/core.test.cjs tests/catalog.test.cjs tests/stock.test.cjs tests/theme.test.cjs tests/receipt-history.test.cjs
 ```
 
 `tests/transactions.sql` prueba contra PostgreSQL precio final, ganancias, cliente, stock, compras externas, importación sin duplicados y permisos. Su transacción termina con `ROLLBACK`; no conserva ventas de prueba ni avanza la numeración.
 
 `tests/deletion.sql` comprueba eliminación, recuperación del stock público, ganancias, reintentos sin duplicar stock, reventa de unidades recuperadas, boletas anteriores sin inventario, conservación de compras externas, correo en curso y permisos. También termina con `ROLLBACK`.
+
+`tests/receipt-history.test.cjs` comprueba abrir/cancelar/confirmar la eliminación desde la página, errores visibles, reintentos, solicitudes duplicadas, fallos de recarga y cierre de sesión durante una petición.
 
 `tests/stock.sql` comprueba cantidades iniciales, reposición, productos agotados, correcciones sin alterar costos históricos, ventas de unidades retiradas rechazadas, reintentos, cantidades desactualizadas, compras en dólares con gastos, reversión de boletas y permisos. Termina con `ROLLBACK` y no conserva datos de prueba. Las pruebas de JavaScript verifican filtros, costos, validación de cantidades y propagación/persistencia del tema.
 
