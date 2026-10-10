@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="es" data-default-theme="dark">
+<head>
+<script src="theme.js?v=4851625ffc8c"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>AO NEXUS - Hardware Gaming & Creación | Lima, Perú</title>
+<meta name="description" content="Tienda especializada en hardware gamer en Lima: procesadores AMD e Intel, tarjetas de video, placas madre, RAM DDR4/DDR5, SSD NVMe y refrigeración. Productos nuevos y sellados con 1 año de garantía. Recojo en Cyber Plaza.">
+<meta name="keywords" content="hardware gamer Lima, procesadores AMD, procesadores Intel, tarjetas de video, RTX 5060, placas madre, RAM DDR5, SSD NVMe, refrigeración liquida PC, Cyber Plaza, AO NEXUS">
+<meta name="robots" content="index, follow">
+<meta name="theme-color" content="#05070f">
+<link rel="canonical" href="https://aonexus.pe/">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="AO NEXUS">
+<meta property="og:title" content="AO NEXUS - Hardware Gaming & Creación">
+<meta property="og:description" content="Procesadores, tarjetas de video, placas madre, RAM, SSD y refrigeración. Productos nuevos y sellados con 1 año de garantía. Recojo en Cyber Plaza, Lima.">
+<meta property="og:image" content="img/banner-hero.webp">
+<meta property="og:locale" content="es_PE">
+<meta property="og:url" content="https://aonexus.pe/">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="AO NEXUS - Hardware Gaming & Creación">
+<meta name="twitter:description" content="Hardware gamer en Lima con garantía de 1 año: procesadores, tarjetas de video, placas madre, RAM, SSD y más.">
+<meta name="twitter:image" content="img/banner-hero.webp">
+
+<link rel="icon" type="image/webp" href="img/LOGO_DE_MARCA.webp">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="styles.css?v=20261004">
+<link rel="stylesheet" href="theme.css?v=709617a3f7fc">
+</head>
+<body>
+
+<!-- ============ HEADER ============ -->
+<header class="site-header">
+  <div class="header-top">
+    <div class="hwrap">
+
+      <a class="brand" href="#" onclick="goHome();return false;" title="Ir al inicio">
+        <img src="img/LOGO_DE_MARCA.webp" alt="AO NEXUS" class="brand-logo" width="42" height="42">
+        <span class="brand-text">AO <b>NEXUS</b></span>
+      </a>
+
+      <div class="search-box">
+        <input type="text" id="searchInput" placeholder="Buscar productos, marcas o componentes..." autocomplete="off">
+        <button class="search-btn" onclick="focusSearch()" aria-label="Buscar"><i class="fas fa-search"></i></button>
+      </div>
+
+      <a class="btn-quote" href="https://wa.me/51936177329?text=Hola%20AO%20NEXUS%2C%20quisiera%20cotizar%20una%20PC" target="_blank" rel="noopener">
+        <i class="fab fa-whatsapp"></i><span>COTIZA POR WHATSAPP</span>
+      </a>
+
+      <div class="header-icons"><button type="button" class="theme-toggle" data-theme-toggle aria-label="Cambiar tema">Modo claro</button>
+        <a href="tel:+51936177329" class="icon-btn" title="Llámanos: +51 936 177 329" aria-label="Llamar"><i class="fas fa-phone"></i></a>
+        <button class="icon-btn cart-btn" onclick="openCart()" title="Mi cotización" aria-label="Mi cotización">
+          <i class="fas fa-cart-shopping"></i>
+          <span class="cart-count" id="cartCount">0</span>
+        </button>
+      </div>
+
+      <button class="menu-toggle" onclick="toggleNav()" aria-label="Menú"><i class="fas fa-bars"></i></button>
+    </div>
+  </div>
+
+  <!-- BARRA DE CATEGORÍAS -->
+  <nav class="cat-nav" id="catNav">
+    <div class="hwrap cat-nav-inner">
+      <a href="#" class="cat-link" onclick="goHome();return false;"><i class="fas fa-house"></i><span>Inicio</span></a>
+      <!-- Las categorías se agregan solas según los productos en stock (app.js) -->
+      <a href="#" class="cat-link cat-all" onclick="showAllProducts();return false;"><i class="fas fa-grip"></i><span>Ver todo</span></a>
+    </div>
+  </nav>
+</header>
+
+<main>
+
+  <!-- ============ HERO ============ -->
+  <section class="hero" id="heroSection">
+    <img src="img/banner-hero.webp" alt="Arma tu PC gamer al mejor precio - AO NEXUS" class="hero-img" width="1672" height="941" fetchpriority="high">
+    <div class="hero-actions">
+      <button class="btn-hero-primary" onclick="showAllProducts()">VER PRODUCTOS <i class="fas fa-arrow-right"></i></button>
+      <a class="btn-hero-wa" href="https://wa.me/51936177329?text=Hola%20AO%20NEXUS%2C%20quisiera%20cotizar%20una%20PC" target="_blank" rel="noopener">
+        <i class="fab fa-whatsapp"></i> COTIZA POR WHATSAPP
+      </a>
+    </div>
+  </section>
+
+  <!-- Beneficios (visible sólo en móvil, en desktop van dentro del banner) -->
+  <section class="benefits-mobile">
+    <div class="ben"><i class="fas fa-shield-halved"></i><div><b>1 AÑO DE GARANTÍA</b><span>Compra con tranquilidad</span></div></div>
+    <div class="ben"><i class="fas fa-store"></i><div><b>RECOJO EN CYBER PLAZA</b><span>Tienda física en Lima</span></div></div>
+    <div class="ben"><i class="fas fa-truck"></i><div><b>ENVÍOS A TODO EL PERÚ</b><span>Rápido y seguro</span></div></div>
+    <div class="ben"><i class="fas fa-headset"></i><div><b>ATENCIÓN RÁPIDA</b><span>Por WhatsApp</span></div></div>
+  </section>
+
+  <!-- ============ VISTA CATÁLOGO (filtros / búsqueda) ============ -->
+  <section class="catalog" id="productsSection" style="display:none;">
+    <div class="hwrap">
+      <div class="catalog-head">
+        <h2 class="sec-title" id="catalogTitle">Todos los <span>Productos</span></h2>
+        <button class="link-more" onclick="goHome()"><i class="fas fa-arrow-left"></i> Volver al inicio</button>
+      </div>
+      <div id="productsContainer"></div>
+    </div>
+  </section>
+
+  <!-- ============ DESTACADOS ============ -->
+  <section class="block" id="featuredSection">
+    <div class="hwrap">
+      <div class="block-head">
+        <div>
+          <span class="sec-kicker"><i class="fas fa-star"></i> Selección AO NEXUS</span>
+          <h2 class="sec-title">Productos <span>Destacados</span></h2>
+        </div>
+        <button class="link-more" onclick="showAllProducts()">Ver todo el catálogo <i class="fas fa-arrow-right"></i></button>
+      </div>
+      <div class="p-grid" id="featuredGrid"><p class="loading-msg"><i class="fas fa-spinner fa-spin"></i> Cargando productos…</p></div>
+    </div>
+  </section>
+
+  <!-- ============ CATEGORÍAS ============ -->
+  <section class="block" id="categoriesSection">
+    <div class="hwrap">
+      <div class="block-head">
+        <div>
+          <span class="sec-kicker"><i class="fas fa-layer-group"></i> Explora</span>
+          <h2 class="sec-title">Compra por <span>Categoría</span></h2>
+        </div>
+        <button class="link-more" onclick="showAllProducts()">Ver todas las categorías <i class="fas fa-arrow-right"></i></button>
+      </div>
+      <div class="c-grid" id="categoryGrid"></div>
+    </div>
+  </section>
+
+  <!-- ============ MÁS VENDIDOS ============ -->
+  <section class="block" id="bestsellersSection">
+    <div class="hwrap">
+      <div class="block-head">
+        <div>
+          <span class="sec-kicker"><i class="fas fa-fire"></i> Lo más pedido</span>
+          <h2 class="sec-title">Más <span>Vendidos</span></h2>
+        </div>
+        <button class="link-more" onclick="showAllProducts()">Ver todo el catálogo <i class="fas fa-arrow-right"></i></button>
+      </div>
+      <div class="p-grid" id="bestsellersGrid"></div>
+    </div>
+  </section>
+
+  <!-- ============ MARCAS ============ -->
+  <section class="block" id="brandsSection">
+    <div class="hwrap">
+      <div class="brands-box">
+        <div class="brands-head">
+          <span class="sec-kicker"><i class="fas fa-certificate"></i> Originales y sellados</span>
+          <h3>Busca por <span>marca</span></h3>
+        </div>
+        <div class="brand-row" id="brandRow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PEDIDOS ESPECIALES ============ -->
+  <section class="block" id="orderSection">
+    <div class="hwrap">
+      <div class="order-box">
+        <div class="order-icon"><i class="fas fa-box-open"></i></div>
+        <div class="order-text">
+          <h3>¿No encuentras lo que buscas?</h3>
+          <p>Lo conseguimos por pedido: fuentes de poder, cases, otras tarjetas de video, monitores y más. Te cotizamos sin compromiso.</p>
+        </div>
+        <a class="btn-order" href="https://wa.me/51936177329?text=Hola%20AO%20NEXUS%2C%20estoy%20buscando%20un%20componente%20que%20no%20veo%20en%20la%20web" target="_blank" rel="noopener">
+          <i class="fab fa-whatsapp"></i> PEDIR COTIZACIÓN
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CTA ARMAR PC ============ -->
+  <section class="help-banner" id="helpCtaSection">
+    <img src="img/banner-armar-pc.webp" alt="¿Necesitas ayuda para armar tu PC?" class="help-img" width="2172" height="724" loading="lazy">
+    <a class="btn-help-wa" href="https://wa.me/51936177329?text=Hola%20AO%20NEXUS%2C%20necesito%20ayuda%20para%20armar%20mi%20PC" target="_blank" rel="noopener">
+      <i class="fab fa-whatsapp"></i> HABLAR POR WHATSAPP
+    </a>
+  </section>
+
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer class="site-footer">
+  <div class="hwrap footer-grid">
+
+    <div class="f-brand">
+      <img src="img/LOGO_DE_MARCA.webp" alt="AO NEXUS" class="f-logo" width="44" height="44" loading="lazy">
+      <span class="brand-text">AO <b>NEXUS</b></span>
+      <p class="f-tag">Hardware que impulsa tus victorias</p>
+      <div class="f-social">
+        <a href="https://www.facebook.com/profile.php?id=61593619740184&locale=es_LA" target="_blank" rel="noopener" aria-label="Facebook"><i class="fab fa-facebook-f"></i></a>
+        <a href="https://wa.me/51936177329" target="_blank" rel="noopener" aria-label="WhatsApp"><i class="fab fa-whatsapp"></i></a>
+        <a href="mailto:aonexuspe@gmail.com" aria-label="Correo"><i class="fas fa-envelope"></i></a>
+      </div>
+    </div>
+
+    <div class="f-col">
+      <h4>Contacto</h4>
+      <p><i class="fas fa-phone"></i> <a href="tel:+51936177329">+51 936 177 329</a></p>
+      <p><i class="fas fa-envelope"></i> <a href="mailto:aonexuspe@gmail.com">aonexuspe@gmail.com</a></p>
+      <p><i class="fab fa-facebook"></i> <a href="https://www.facebook.com/profile.php?id=61593619740184&locale=es_LA" target="_blank" rel="noopener">AO NEXUS</a></p>
+      <p><i class="fas fa-clock"></i> Lun – Sáb: 12:00 p.m. – 7:00 p.m.</p>
+    </div>
+
+    <div class="f-col">
+      <h4>Ubicación</h4>
+      <p><i class="fas fa-location-dot"></i> Galería Cyber Plaza, Int. 2B-147<br><span class="muted">Lima, Perú</span></p>
+      <a class="f-maplink" href="https://www.google.com/maps/place/Cyber+Plaza/@-12.0569915,-77.0393457,17z/data=!4m6!3m5!1s0x9105c8c6a4cadd41:0x684a92056addc88a!8m2!3d-12.0569097!4d-77.0386343!16s%2Fg%2F1yj2mkks5" target="_blank" rel="noopener">Ver en Google Maps <i class="fas fa-arrow-right"></i></a>
+      <a class="f-maplink" href="#" onclick="toggleTerms();return false;">Términos y condiciones <i class="fas fa-chevron-down"></i></a>
+    </div>
+
+    <div class="f-map">
+      <iframe src="https://www.google.com/maps?q=Cyber%20Plaza%20Lima&output=embed" title="Mapa Cyber Plaza" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+    </div>
+  </div>
+
+  <div class="hwrap terms" id="termsBox" hidden>
+    <h4>Términos y condiciones</h4>
+    <p><b>1. Información general:</b> AO NEXUS comercializa hardware y componentes nuevos y sellados, sujetos a disponibilidad de stock.</p>
+    <p><b>2. Precios:</b> los precios están en soles (S/) y el stock puede cambiar sin previo aviso.</p>
+    <p><b>3. Garantía:</b> 1 año contra fallas de fabricación. No cubre daños por uso incorrecto.</p>
+    <p><b>4. Entregas:</b> recojo coordinado en Cyber Plaza; envíos a provincia por agencia según destino.</p>
+    <p><b>5. Cambios y devoluciones:</b> se evalúan según el estado del producto y la normativa aplicable.</p>
+  </div>
+
+  <div class="footer-bottom">
+    <div class="hwrap fb-inner">
+      <p>© 2026 <b>AO NEXUS</b>. Todos los derechos reservados.</p>
+      <p class="muted">Productos nuevos y sellados · Garantía 1 año · Lima, Perú</p>
+    </div>
+  </div>
+</footer>
+
+<!-- ============ MODAL PRODUCTO ============ -->
+<div id="productModal" class="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-card">
+    <button class="modal-close" onclick="closeModal()" aria-label="Cerrar">&times;</button>
+    <div class="modal-body">
+      <div class="modal-media"><div class="ph" id="modalPh"></div><img id="modalImage" src="" alt=""></div>
+      <div class="modal-info">
+        <span class="p-cat" id="modalCat"></span>
+        <h3 id="modalName"></h3>
+        <div class="modal-stock" id="modalStock"></div>
+        <div class="modal-price" id="modalPrice"></div>
+        <div class="modal-specs" id="modalSpecs"></div>
+        <div class="modal-actions">
+          <button class="btn-add" onclick="addToCartFromModal()"><i class="fas fa-cart-plus"></i> Agregar a cotización</button>
+          <button class="btn-wa" onclick="contactWhatsApp()"><i class="fab fa-whatsapp"></i> Consultar por WhatsApp</button>
+        </div>
+        <ul class="modal-trust">
+          <li><i class="fas fa-shield-halved"></i> Garantía 1 año</li>
+          <li><i class="fas fa-box"></i> Nuevo y sellado</li>
+          <li><i class="fas fa-store"></i> Recojo en Cyber Plaza</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ CARRITO / COTIZACIÓN ============ -->
+<div class="drawer-backdrop" id="cartBackdrop" onclick="closeCart()"></div>
+<aside class="cart-drawer" id="cartDrawer" aria-hidden="true">
+  <div class="cart-head">
+    <h3><i class="fas fa-cart-shopping"></i> Mi cotización</h3>
+    <button class="modal-close" onclick="closeCart()" aria-label="Cerrar">&times;</button>
+  </div>
+  <div class="cart-items" id="cartItems"></div>
+  <div class="cart-foot">
+    <div class="cart-total"><span>Total estimado</span><b id="cartTotal">S/ 0</b></div>
+    <a class="btn-wa full" id="cartWaBtn" href="#" target="_blank" rel="noopener"><i class="fab fa-whatsapp"></i> ENVIAR COTIZACIÓN</a>
+    <button class="btn-ghost full" onclick="clearCart()">Vaciar</button>
+  </div>
+</aside>
+
+<!-- ============ BOTONES FLOTANTES ============ -->
+<div class="floaters">
+  <button class="float-btn products" onclick="showAllProducts()" title="Ver productos">
+    <i class="fas fa-microchip"></i><span>VER PRODUCTOS</span>
+  </button>
+  <a class="float-btn wa" href="https://wa.me/51936177329?text=Hola%20AO%20NEXUS%2C%20quisiera%20cotizar%20por%20WhatsApp" target="_blank" rel="noopener" title="Cotizar por WhatsApp">
+    <i class="fab fa-whatsapp"></i><span>COTIZAR POR WHATSAPP</span>
+  </a>
+  <button class="float-btn top" id="toTop" onclick="scrollTop()" title="Subir"><i class="fas fa-chevron-up"></i></button>
+</div>
+
+<script src="categorias.js?v=20261004"></script>
+<script src="app.js?v=3658621492f5"></script>
+</body>
+</html>

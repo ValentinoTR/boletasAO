@@ -1,0 +1,25 @@
+:root{color-scheme:dark}
+.theme-toggle{padding:8px 11px!important;white-space:nowrap;width:auto!important;height:auto!important;font-size:11px;font-weight:700;border:1px solid var(--line2)!important;border-radius:8px;background:var(--panel)}
+:root[data-theme=light]{color-scheme:light;--bg:#f6f5fa;--bg2:#edeaf4;--panel:#fff;--card:#fff;--line:#e4dfed;--line2:#d3c9e1;--txt:#241d32;--muted:#726a81;--purple:#7145bc;--violet:#7d3fb8;--cyan:#096d87;--blue:#285ac1;--green:#12833b;--red:#c72d43}
+[data-theme=light] .site-header{background:#fffffff2}
+[data-theme=light] .search-box{background:#f3eff9}
+[data-theme=light] .search-box input,[data-theme=light] .menu-toggle,[data-theme=light] .p-name,[data-theme=light] .p-price,[data-theme=light] .sec-title,[data-theme=light] .ph-brand,[data-theme=light] .subcat-title,[data-theme=light] .brands-head h3,[data-theme=light] .brand-chip,[data-theme=light] .order-text h3,[data-theme=light] .f-col h4,[data-theme=light] .modal-info h3,[data-theme=light] .cart-head h3,[data-theme=light] .ci-name,[data-theme=light] .spec-row span:last-child,[data-theme=light] .ben b{color:var(--txt)}
+[data-theme=light] .brand-text b{color:var(--txt);-webkit-text-fill-color:var(--txt)}
+[data-theme=light] .icon-btn,[data-theme=light] .fb-inner b{color:var(--txt)}[data-theme=light] .fb-inner p{color:var(--muted)}
+[data-theme=light] .icon-btn:hover,[data-theme=light] .cat-link:hover,[data-theme=light] .cat-link.active,[data-theme=light] .link-more:hover{color:var(--purple)}
+[data-theme=light] .cat-nav{background:#f4effa}
+[data-theme=light] .p-image,[data-theme=light] .modal-media,[data-theme=light] .ci-media{background:#f3f0f7}
+[data-theme=light] .p-fav{background:#fffd;color:var(--muted)}
+[data-theme=light] .p-btn{color:var(--purple)}[data-theme=light] .p-btn:hover{color:#fff}
+[data-theme=light] .p-stock.ok{color:#137b3e}[data-theme=light] .p-stock.low{color:#8d5e06}[data-theme=light] .p-price.sale{color:#bc2947}
+[data-theme=light] .brand-chip small,[data-theme=light] .filter-toggle,[data-theme=light] .empty-state,[data-theme=light] .empty-state p,[data-theme=light] .f-col p,[data-theme=light] .terms p,[data-theme=light] .modal-trust li,[data-theme=light] .cart-empty{color:var(--muted)}
+[data-theme=light] .modal-card,[data-theme=light] .cart-drawer,[data-theme=light] .sort-select{background:var(--panel);color:var(--txt)}
+[data-theme=light] .modal-close,[data-theme=light] .ci-qty button,[data-theme=light] .f-social a{background:#f1edf7;color:var(--txt)}
+[data-theme=light] .modal-close:hover{background:var(--red);color:#fff}
+[data-theme=light] .ci-qty button:hover,[data-theme=light] .f-social a:hover{background:var(--purple);color:#fff}
+[data-theme=light] footer,[data-theme=light] .site-footer{background:#eae4f3;color:var(--txt)}
+[data-theme=light] .terms b{color:var(--txt)}
+[data-theme=light] select,[data-theme=light] input:not(.search-box input){background:var(--panel);color:var(--txt);border-color:var(--line2)}
+[data-theme=light] .toast{background:#fff;color:var(--txt);box-shadow:0 12px 36px #37264625}[data-theme=light] .toast i{color:var(--green)}
+[data-theme=light] ::-webkit-scrollbar-track{background:#eee9f4}
+@media(max-width:600px){.theme-toggle{font-size:0}.theme-toggle:first-letter{font-size:16px}}

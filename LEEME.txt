@@ -1,0 +1,28 @@
+AO NEXUS CENTRAL
+
+Panel actualizado: https://valentinotr.github.io/boletasAO/
+
+Para usar la aplicación, abre el enlace e ingresa con tu cuenta de Boletas AO.
+Para publicar los archivos en otro alojamiento, utiliza el contenido de dist/.
+El proyecto requiere internet y utiliza la base de datos ya configurada.
+
+STOCK Y TEMA
+En Mi web e Inventario puedes elegir En stock o Para reponer.
+Modificar stock corrige la cantidad; Reponer registra unidades nuevas con
+su costo de compra. Los agotados conservan su ficha y foto. Al agregar
+un producto se pregunta cuantas unidades ingresan; 0 lo deja Para reponer.
+El boton Modo claro / Modo oscuro cambia todo el panel y la tienda.
+
+ELIMINAR UNA BOLETA EQUIVOCADA
+Entra en Boletas emitidas, pulsa Eliminar y luego Si, eliminar boleta
+en la ventana de la pagina. Alli se muestran el progreso y los errores.
+La boleta desaparece del historial y de las ventas. Sus unidades vinculadas
+vuelven al inventario y se recalcula la ganancia. Después puedes emitir otra
+boleta con los datos correctos. El número eliminado permanece reservado.
+Los correos enviados y los PDF descargados no se retiran.
+
+Incluye el panel en dist/, el código de generación, las integraciones de la
+tienda y del contabilizador, los cambios de base de datos y las pruebas.
+Los cambios SQL ya están aplicados al proyecto actual; no ejecutes de nuevo
+el esquema inicial ni las actualizaciones de eliminación y stock sobre esa base.
+Consulta README.md para importar las compras anteriores y vincular el stock.

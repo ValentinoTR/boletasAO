@@ -1,0 +1,20 @@
+const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),assert=require('node:assert/strict');
+const {webcrypto}=require('node:crypto');
+const win={parent:{AOCloud:{userId:'test'}}};
+const context=vm.createContext({window:win,location:{replace(){}},document:{getElementById(){return null;}},crypto:webcrypto,Uint8Array,Intl,structuredClone,console,setTimeout,clearTimeout,localStorage:{getItem(){return null;}},fetch:async name=>({ok:true,arrayBuffer:async()=>{const b=fs.readFileSync(path.join(__dirname,'../dist',name));return b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength);}})});
+for(const asset of ['pdf-lib.min.js','fontkit.min.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../dist/assets',asset),'utf8'),context);
+const PDFLib=context.PDFLib;
+const source=fs.readFileSync(path.join(__dirname,'../dist/assets/receipt.js'),'utf8');
+vm.runInContext(source.slice(0,source.indexOf('function download(')),context);
+const input={version:1,series:'QATEST',number:'1',date:'2026-10-10',customer:'CLIENTE DE PRUEBA · Muñoz',docType:'NONE',document:'',email:'',address:'Lima',observations:'1 AÑO DE GARANTÍA.',items:[{description:'Computadora completa: placa B850 y procesador Ryzen 9',serial:'SN-PRUEBA',code:'PC-01',unit:'NIU',quantity:'1',price:'2100.50'}]};
+context.testReceipt=input;
+(async()=>{
+ await vm.runInContext('(async()=>{const scratch=await PDFLib.PDFDocument.create();fonts=await embedReceiptFonts(scratch);})()',context);
+ assert.equal(vm.runInContext('amountInWords(210050)',context),'DOS MIL CIEN SOLES CON CINCUENTA CÉNTIMOS');
+ const bytes=await vm.runInContext('generatePDF(testReceipt)',context);
+ const pdf=await PDFLib.PDFDocument.load(bytes);assert.equal(pdf.getPageCount(),1);
+ assert.ok(bytes.length>10000);fs.mkdirSync(path.join(__dirname,'../.qa'),{recursive:true});fs.writeFileSync(path.join(__dirname,'../.qa/receipt-test.pdf'),bytes);
+ context.testReceipt={...input,items:Array.from({length:15},(_,i)=>({...input.items[0],description:'COMPONENTE '+(i+1)+' · descripción del producto',price:'100.00'}))};
+ const multiple=await vm.runInContext('generatePDF(testReceipt)',context);assert.ok((await PDFLib.PDFDocument.load(multiple)).getPageCount()>1);
+ console.log('PDF con plantilla, fuentes, tildes, importe en letras y varias páginas: correcto');
+})().catch(e=>{console.error(e);process.exit(1);});

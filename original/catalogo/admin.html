@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#05070f">
+<title>Panel de stock · AO NEXUS</title>
+<link rel="icon" type="image/webp" href="img/LOGO_DE_MARCA.webp">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+:root{
+  --bg:#05070f; --panel:#0c1020; --card:#0d1224; --card2:#111832;
+  --line:#1b2340; --line2:#252f52; --txt:#e8ecf7; --muted:#8b97b8;
+  --purple:#8b5cf6; --cyan:#22d3ee; --green:#22c55e; --red:#ef4444; --amber:#fbbf24;
+  --grad:linear-gradient(90deg,#a855f7 0%,#7c6cf6 45%,#22d3ee 100%);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--txt);line-height:1.5;-webkit-font-smoothing:antialiased;padding-bottom:120px}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;border:none;background:none}
+a{color:var(--cyan)}
+[hidden]{display:none !important}
+.wrap{max-width:1120px;margin:0 auto;padding:0 16px}
+
+/* ---------- cabecera ---------- */
+.top{position:sticky;top:0;z-index:50;background:rgba(6,9,20,.96);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;gap:12px;height:64px}
+.marca{display:flex;align-items:center;gap:10px;margin-right:auto;min-width:0}
+.marca img{width:38px;height:38px;border-radius:8px}
+.marca b{font-family:'Montserrat',sans-serif;font-weight:900;font-size:18px;white-space:nowrap}
+.marca b span{background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.marca small{display:block;font-size:11.5px;color:var(--muted);font-weight:600;letter-spacing:.6px;text-transform:uppercase}
+
+/* ---------- botones ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 16px;border-radius:10px;font-weight:700;font-size:13.5px;transition:.2s;white-space:nowrap;text-decoration:none}
+.btn.primary{background:linear-gradient(135deg,#8b5cf6,#6d5cf6);color:#fff}
+.btn.primary:hover{box-shadow:0 6px 18px rgba(139,92,246,.45)}
+.btn.green{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff}
+.btn.green:hover{box-shadow:0 6px 18px rgba(34,197,94,.45)}
+.btn.ghost{border:1px solid var(--line2);color:#c3cce6}
+.btn.ghost:hover{border-color:var(--purple);color:#fff}
+.btn.danger{border:1px solid rgba(239,68,68,.45);color:#f87171}
+.btn.danger:hover{background:var(--red);color:#fff}
+.btn:disabled{opacity:.55;cursor:wait}
+.btn.sm{padding:8px 12px;font-size:12.5px}
+
+/* ---------- avisos ---------- */
+.aviso{margin:18px 0 0;padding:13px 16px;border-radius:12px;font-size:13.5px;display:flex;gap:11px;align-items:flex-start;border:1px solid}
+.aviso i{margin-top:3px}
+.aviso.error{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.4);color:#fecaca}
+.aviso.ok{background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.4);color:#bbf7d0}
+.aviso.info{background:rgba(34,211,238,.08);border-color:rgba(34,211,238,.35);color:#cffafe}
+.aviso small{display:block;opacity:.75;margin-top:3px;word-break:break-word}
+
+/* ---------- conectar ---------- */
+.login{max-width:720px;margin:34px auto;background:var(--panel);border:1px solid var(--line2);border-radius:16px;padding:28px}
+.login h1{font-family:'Montserrat',sans-serif;font-size:22px;font-weight:900;margin-bottom:6px}
+.login > p{color:var(--muted);font-size:14px;margin-bottom:20px}
+.pasos{list-style:none;counter-reset:paso;display:grid;gap:14px;margin-bottom:22px}
+.pasos > li{counter-increment:paso;position:relative;padding:14px 16px 14px 54px;background:var(--card);border:1px solid var(--line);border-radius:12px;font-size:14px}
+.pasos > li::before{content:counter(paso);position:absolute;left:14px;top:13px;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--grad);color:#fff;font-weight:800;font-size:13px}
+.pasos ul{margin:8px 0 0 18px;color:#c3cce6;display:grid;gap:4px}
+.pasos code,.login code{background:#1a2142;padding:1px 6px;border-radius:5px;font-size:12.5px;color:#d5c9ff}
+.llave{display:flex;gap:10px;margin-top:10px}
+.llave input{flex:1;min-width:0;background:#0e1424;border:1px solid var(--line2);border-radius:10px;padding:11px 14px;outline:none}
+.llave input:focus{border-color:var(--purple)}
+.alterno{margin-top:18px;padding-top:16px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
+.alterno button{color:var(--cyan);font-weight:600;text-decoration:underline}
+
+/* ---------- herramientas ---------- */
+.cabeza{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:26px 0 14px}
+.cabeza h1{font-family:'Montserrat',sans-serif;font-size:24px;font-weight:900;line-height:1.1}
+.resumen{font-size:13.5px;color:var(--muted);margin-top:6px}
+.resumen b{color:#fff}
+.resumen .ok{color:#4ade80}
+.resumen .off{color:#f87171}
+.modo{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;margin-left:8px;vertical-align:middle}
+.modo.github{background:rgba(34,197,94,.12);color:#4ade80}
+.modo.manual{background:rgba(251,191,36,.12);color:var(--amber)}
+.herramientas{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+.buscar{flex:1;min-width:200px;display:flex;align-items:center;gap:8px;background:#0e1424;border:1px solid var(--line2);border-radius:10px;padding:0 12px}
+.buscar input{flex:1;background:none;border:none;outline:none;padding:10px 0;min-width:0}
+.buscar i{color:var(--muted)}
+.filtros{display:flex;background:#0e1424;border:1px solid var(--line2);border-radius:10px;padding:3px}
+.filtros button{padding:7px 12px;border-radius:8px;font-size:13px;font-weight:600;color:#9daac9}
+.filtros button.on{background:var(--purple);color:#fff}
+
+/* ---------- lista de productos ---------- */
+.grupo h2{display:flex;align-items:center;gap:9px;font-family:'Montserrat',sans-serif;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;margin:24px 0 10px;color:#fff}
+.grupo h2 i{color:var(--purple)}
+.grupo h2 small{font-family:'Inter',sans-serif;font-weight:600;color:var(--muted);text-transform:none;letter-spacing:0}
+.fila{
+  display:grid;align-items:center;gap:12px;
+  grid-template-columns:64px minmax(0,1fr) 112px 122px 134px 40px;
+  grid-template-areas:"foto datos precio unidades estado editar";
+  background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:10px 12px;margin-bottom:8px;transition:border-color .2s,opacity .2s;
+}
+.fila.cambiado{border-color:rgba(251,191,36,.6);box-shadow:inset 3px 0 0 var(--amber)}
+.fila.agotado .foto,.fila.agotado .datos{opacity:.45}
+.foto{grid-area:foto;position:relative;width:64px;height:48px;border-radius:8px;overflow:hidden;background:#0b0c11;display:grid;place-items:center;cursor:pointer}
+.foto > i{color:var(--purple);font-size:18px}
+.foto img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;color:transparent}
+.foto .sinfoto-txt{display:none}
+.foto.sinfoto img{display:none}
+.foto.sinfoto{border:1px dashed rgba(251,191,36,.5)}
+.foto.sinfoto .sinfoto-txt{display:block;position:absolute;bottom:2px;left:0;right:0;text-align:center;font-size:9px;font-weight:700;color:var(--amber)}
+.datos{grid-area:datos;min-width:0}
+.datos b{display:block;font-size:13.5px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.datos span{font-size:12px;color:var(--muted)}
+.datos em{font-style:normal;color:var(--amber);font-weight:700}
+.datos .fa-star{color:var(--amber)}
+.datos .fa-fire{color:#fb7185}
+.precio{grid-area:precio;display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);font-weight:600}
+.num{width:100%;min-width:0;background:#0e1424;border:1px solid var(--line2);border-radius:8px;padding:8px 9px;outline:none;font-weight:700;color:#fff}
+.num:focus{border-color:var(--purple)}
+.unidades{grid-area:unidades;display:flex;align-items:center;border:1px solid var(--line2);border-radius:8px;overflow:hidden;background:#0e1424}
+.unidades button{width:34px;height:36px;display:grid;place-items:center;color:#c3cce6;font-size:12px}
+.unidades button:hover{background:rgba(139,92,246,.2)}
+.unidades input{width:100%;min-width:0;text-align:center;background:none;border:none;outline:none;font-weight:700;color:#fff;-moz-appearance:textfield}
+.unidades input::-webkit-inner-spin-button,.unidades input::-webkit-outer-spin-button{-webkit-appearance:none}
+.estado{grid-area:estado;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:9px 10px;border-radius:9px;font-size:12.5px;font-weight:700;border:1px solid}
+.estado.on{background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.45);color:#4ade80}
+.estado.off{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.4);color:#f87171}
+.estado:hover{filter:brightness(1.2)}
+.editar{grid-area:editar;width:40px;height:38px;border-radius:9px;border:1px solid var(--line2);color:#c3cce6}
+.editar:hover{border-color:var(--purple);color:#fff}
+.vacio{text-align:center;color:var(--muted);padding:50px 0}
+
+/* ---------- barra de publicar ---------- */
+.barra{position:fixed;left:0;right:0;bottom:0;z-index:60;background:rgba(12,16,32,.97);backdrop-filter:blur(10px);border-top:1px solid var(--line2);box-shadow:0 -10px 30px rgba(0,0,0,.4)}
+.barra .wrap{display:flex;align-items:center;gap:10px;padding-top:12px;padding-bottom:12px;flex-wrap:wrap}
+.barra-info{margin-right:auto;font-size:13.5px}
+.barra-info b{color:var(--amber)}
+.barra-info button{color:var(--cyan);font-size:12.5px;font-weight:600;margin-left:6px;text-decoration:underline}
+.lista-cambios{flex-basis:100%;order:5;list-style:none;font-size:12.5px;color:#c3cce6;max-height:160px;overflow:auto;display:grid;gap:3px;padding:4px 2px}
+.lista-cambios li::before{content:'•';color:var(--amber);margin-right:7px}
+
+/* ---------- estado de publicación ---------- */
+.publicando{position:fixed;right:16px;top:76px;z-index:70;max-width:380px;background:var(--panel);border:1px solid var(--line2);border-radius:14px;padding:14px 16px;box-shadow:0 14px 40px rgba(0,0,0,.5);display:flex;gap:12px;font-size:13.5px}
+.publicando i{font-size:20px;margin-top:2px}
+.publicando.listo{border-color:rgba(34,197,94,.5)}
+.publicando.listo i{color:#4ade80}
+.publicando.lento i{color:var(--amber)}
+.publicando .x{margin-left:auto;color:var(--muted);font-size:18px;align-self:flex-start}
+
+/* ---------- diálogo de producto ---------- */
+dialog{border:1px solid var(--line2);border-radius:16px;background:var(--panel);color:var(--txt);width:min(720px,calc(100vw - 24px));max-height:calc(100vh - 32px);padding:0;margin:auto}
+dialog::backdrop{background:rgba(2,4,10,.82);backdrop-filter:blur(4px)}
+dialog form{display:flex;flex-direction:column;max-height:calc(100vh - 34px)}
+.d-cab{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line)}
+.d-cab h3{font-family:'Montserrat',sans-serif;font-size:17px;font-weight:800}
+.d-cab button{font-size:24px;color:var(--muted);line-height:1}
+.d-cuerpo{padding:18px 20px;overflow-y:auto;display:grid;gap:14px}
+.d-pie{display:flex;align-items:center;gap:8px;padding:14px 20px;border-top:1px solid var(--line);flex-wrap:wrap}
+.d-pie .flex{flex:1}
+.campo{display:grid;gap:6px;font-size:12.5px;font-weight:600;color:#c3cce6}
+.campo small{font-weight:500;color:var(--muted)}
+.campo input,.campo select{background:#0e1424;border:1px solid var(--line2);border-radius:9px;padding:10px 12px;outline:none;font-size:14px;font-weight:500;color:#fff;width:100%}
+.campo input:focus,.campo select:focus{border-color:var(--purple)}
+.campo select option,.campo select optgroup{background:#0e1424}
+.dos{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.tres{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.foto-edit{display:flex;gap:16px;align-items:center}
+.foto-prev{position:relative;flex-shrink:0;width:200px;aspect-ratio:4/3;border-radius:10px;overflow:hidden;background:#0b0c11;border:1px dashed var(--line2);display:grid;place-items:center;text-align:center;color:var(--muted);font-size:12px}
+.foto-prev i{font-size:26px;color:var(--purple);display:block;margin-bottom:6px}
+.foto-prev img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.foto-acciones{display:grid;gap:10px;font-size:12.5px;color:var(--muted)}
+.foto-acciones .btn{justify-self:start;cursor:pointer}
+.chk{display:flex;align-items:center;gap:8px;font-size:13px;color:#c3cce6;cursor:pointer}
+.chk input{width:16px;height:16px;accent-color:var(--purple)}
+.chk .fa-star{color:var(--amber)}
+.chk .fa-fire{color:#fb7185}
+fieldset{border:1px solid var(--line);border-radius:12px;padding:12px 14px 14px}
+legend{padding:0 6px;font-size:12.5px;font-weight:700;color:#c3cce6}
+.spec{display:grid;grid-template-columns:150px 1fr 30px;gap:8px;align-items:center;margin-bottom:8px}
+.spec > span{font-size:12.5px;color:var(--muted)}
+.spec input{background:#0e1424;border:1px solid var(--line2);border-radius:8px;padding:8px 10px;outline:none;color:#fff;width:100%;min-width:0;font-size:14px}
+.spec input:focus{border-color:var(--purple)}
+.spec .quitar{color:var(--muted);font-size:15px}
+.spec .quitar:hover{color:#f87171}
+.link{color:var(--cyan);font-size:12.5px;font-weight:600}
+.ayuda{font-size:12px;color:var(--muted)}
+
+@media (max-width:760px){
+  .marca small{display:none}
+  .top .btn span{display:none}
+  .login{padding:20px 16px;margin:20px auto}
+  .llave{flex-direction:column}
+  /* en celular cada producto ocupa dos filas: foto + nombre, y debajo precio · unidades · estado */
+  .fila{
+    gap:10px;
+    grid-template-columns:56px repeat(4,minmax(0,1fr)) 40px;
+    grid-template-areas:"foto datos datos datos datos editar" "precio precio unidades unidades estado estado";
+  }
+  .foto{width:56px;height:42px}
+  .precio{font-size:12px}
+  .estado{font-size:12px;padding:9px 6px}
+  .dos,.tres{grid-template-columns:1fr}
+  .tres{grid-template-columns:1fr 1fr}
+  .foto-edit{flex-direction:column;align-items:stretch}
+  .foto-prev{width:100%}
+  .spec{grid-template-columns:110px 1fr 26px}
+  dialog{width:100vw;max-width:100vw;max-height:100vh;height:100%;border-radius:0}
+  dialog form{max-height:100vh;height:100%}
+  .d-cuerpo{flex:1}
+  .barra-info{flex-basis:100%}
+  .barra .btn{flex:1}
+  .publicando{left:12px;right:12px;top:70px;max-width:none}
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="marca">
+      <img src="img/LOGO_DE_MARCA.webp" alt="AO NEXUS">
+      <div><b>AO <span>NEXUS</span></b><small>Panel de stock</small></div>
+    </div>
+    <a class="btn ghost sm" href="./" target="_blank" rel="noopener"><i class="fas fa-store"></i><span>Ver mi web</span></a>
+    <button class="btn ghost sm" id="btnSalir" hidden><i class="fas fa-right-from-bracket"></i><span>Salir</span></button>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="aviso"></div>
+
+  <!-- ============ CONECTAR (solo la primera vez) ============ -->
+  <section class="login" id="vistaLogin" hidden>
+    <h1>Conecta el panel con GitHub</h1>
+    <p>Solo se hace una vez en cada celular o computadora. Así el panel puede guardar los cambios directo en tu web.</p>
+
+    <ol class="pasos">
+      <li>
+        <b>Abre GitHub para crear una llave de acceso</b> (inicia sesión con tu cuenta si te lo pide).
+        <div style="margin-top:10px"><a class="btn primary sm" id="linkLlave" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener"><i class="fas fa-key"></i> Crear llave en GitHub</a></div>
+      </li>
+      <li>
+        <b>El enlace ya llena casi todo. Solo revisa que quede así:</b>
+        <ul>
+          <li><b>Token name:</b> <code>Panel AO NEXUS</code></li>
+          <li><b>Resource owner:</b> <code>AONEXUSpe</code> (la organización, no tu usuario)</li>
+          <li><b>Expiration:</b> 365 days</li>
+          <li><b>Repository access:</b> elige <i>Only select repositories</i> y marca <code>AONEXUSpe.github.io</code> &larr; <b>esto lo tienes que elegir tú</b></li>
+          <li><b>Permissions:</b> <b>Contents</b> en <b>Read and write</b></li>
+        </ul>
+        Luego toca el botón verde <b>Generate token</b> y copia la llave (empieza con <code>github_pat_</code>).
+      </li>
+      <li>
+        <b>Pega la llave aquí:</b>
+        <form class="llave" id="formLlave">
+          <input type="password" id="inputLlave" placeholder="github_pat_..." autocomplete="off" spellcheck="false" required>
+          <button class="btn green" type="submit" id="btnConectar"><i class="fas fa-plug"></i> Conectar</button>
+        </form>
+        <p class="ayuda" style="margin-top:8px"><i class="fas fa-lock"></i> La llave se guarda solo en este dispositivo. No la compartas con nadie.</p>
+      </li>
+    </ol>
+
+    <p class="ayuda">Si GitHub dice que la llave está pendiente de aprobación, apruébala como dueño de la organización en
+      <a href="https://github.com/organizations/AONEXUSpe/settings/personal-access-token-requests" target="_blank" rel="noopener">Settings → Personal access tokens → Pending requests</a>.</p>
+
+    <div class="alterno">
+      ¿Prefieres no conectar? <button type="button" id="btnManual">Usar el panel sin conectar</button>:
+      haces tus cambios y el panel te descarga el archivo <code>productos.json</code> para que lo subas tú a GitHub.
+    </div>
+  </section>
+
+  <!-- ============ PANEL ============ -->
+  <section id="vistaPanel" hidden>
+    <div class="cabeza">
+      <div>
+        <h1>Mis productos <span class="modo" id="modoChip"></span></h1>
+        <p class="resumen" id="resumen"></p>
+      </div>
+      <button class="btn primary" id="btnNuevo"><i class="fas fa-plus"></i> Agregar producto</button>
+    </div>
+
+    <div class="herramientas">
+      <label class="buscar"><i class="fas fa-magnifying-glass"></i><input type="search" id="buscar" placeholder="Buscar producto o marca…"></label>
+      <div class="filtros" id="filtros">
+        <button data-filtro="todos" class="on">Todos</button>
+        <button data-filtro="stock">En stock</button>
+        <button data-filtro="agotados">Agotados</button>
+      </div>
+    </div>
+    <p class="ayuda"><i class="fas fa-circle-info"></i> Toca <b>En stock</b> / <b>Agotado</b> para mostrar u ocultar un producto en la web. Los agotados no se borran: cuando vuelvan a ingresar, solo los activas.</p>
+
+    <div id="lista"></div>
+  </section>
+</main>
+
+<!-- ============ BARRA DE PUBLICAR ============ -->
+<div class="barra" id="barra" hidden>
+  <div class="wrap">
+    <div class="barra-info"><i class="fas fa-pen-to-square" style="color:var(--amber)"></i> <b id="numCambios">0</b> <span id="txtCambios">cambios sin publicar</span> <button type="button" id="btnVerCambios">Ver</button></div>
+    <button class="btn ghost" id="btnDescartar"><i class="fas fa-rotate-left"></i> Descartar</button>
+    <button class="btn green" id="btnPublicar"><i class="fas fa-cloud-arrow-up"></i> <span id="txtPublicar">Publicar cambios</span></button>
+    <ul class="lista-cambios" id="listaCambios" hidden></ul>
+  </div>
+</div>
+
+<!-- ============ ESTADO DE PUBLICACIÓN ============ -->
+<div class="publicando" id="publicando" hidden>
+  <i class="fas fa-spinner fa-spin"></i>
+  <div><b id="pubTitulo">Publicando…</b><div id="pubTexto" class="ayuda"></div></div>
+  <button class="x" id="pubCerrar" aria-label="Cerrar">&times;</button>
+</div>
+
+<!-- ============ AGREGAR / EDITAR PRODUCTO ============ -->
+<dialog id="dlg">
+  <form id="frm" novalidate>
+    <div class="d-cab"><h3 id="dlgTitulo">Agregar producto</h3><button type="button" data-cerrar aria-label="Cerrar">&times;</button></div>
+    <div class="d-cuerpo">
+      <div class="foto-edit">
+        <div class="foto-prev" id="fotoPrev"><div><i class="fas fa-camera"></i>Sin foto</div><img id="fotoImg" alt="" hidden></div>
+        <div class="foto-acciones">
+          <label class="btn ghost sm"><i class="fas fa-image"></i> <span id="txtFoto">Elegir foto</span><input type="file" id="fotoInput" accept="image/*" hidden></label>
+          <label class="chk"><input type="checkbox" id="fRecorte" checked> Recortar y centrar el producto</label>
+          <span id="fotoInfo">La foto se recorta, se achica y se guarda en WebP automáticamente.</span>
+        </div>
+      </div>
+
+      <label class="campo">Nombre del producto *<input id="fNombre" placeholder="Ej: RYZEN 7 9800X3D" autocomplete="off"></label>
+      <div class="dos">
+        <label class="campo">Marca *<input id="fMarca" list="marcas" placeholder="Ej: AMD, ASUS, Corsair" autocomplete="off"></label>
+        <label class="campo">Categoría *<select id="fCategoria"></select></label>
+      </div>
+      <div class="tres">
+        <label class="campo">Precio (S/) *<input id="fPrecio" type="number" min="1" step="1" inputmode="numeric"></label>
+        <label class="campo">Unidades<input id="fStock" type="number" min="0" step="1" inputmode="numeric"></label>
+        <label class="campo">Precio antes<input id="fAntes" type="number" min="0" step="1" inputmode="numeric" placeholder="Solo si está en oferta"></label>
+      </div>
+
+      <fieldset>
+        <legend>Datos técnicos <small class="ayuda">(los vacíos no se muestran)</small></legend>
+        <div id="specs"></div>
+        <button type="button" class="link" id="btnDato"><i class="fas fa-plus"></i> Agregar otro dato</button>
+      </fieldset>
+
+      <label class="campo">Descripción corta <small>(se ve debajo del nombre)</small><input id="fSub" autocomplete="off"></label>
+
+      <div class="checks" style="display:grid;gap:8px">
+        <label class="chk"><input type="checkbox" id="fDestacado"> <i class="fas fa-star"></i> Mostrar en "Productos Destacados" del inicio</label>
+        <label class="chk"><input type="checkbox" id="fVendido"> <i class="fas fa-fire"></i> Mostrar en "Más Vendidos" del inicio</label>
+      </div>
+      <div id="dlgError"></div>
+    </div>
+    <div class="d-pie">
+      <button type="button" class="btn danger sm" id="btnEliminar"><i class="fas fa-trash"></i> Eliminar</button>
+      <button type="button" class="btn ghost sm" id="btnDuplicar"><i class="fas fa-copy"></i> Duplicar</button>
+      <span class="flex"></span>
+      <button type="button" class="btn ghost" data-cerrar>Cancelar</button>
+      <button type="submit" class="btn primary" id="btnAceptar"><i class="fas fa-check"></i> Aceptar</button>
+    </div>
+  </form>
+</dialog>
+<datalist id="marcas"></datalist>
+
+<!-- ============ INSTRUCCIONES MODO SIN CONECTAR ============ -->
+<dialog id="dlgManual">
+  <form method="dialog">
+    <div class="d-cab"><h3><i class="fas fa-download"></i> Archivos descargados</h3><button value="ok" aria-label="Cerrar">&times;</button></div>
+    <div class="d-cuerpo">
+      <p>Ahora súbelos a GitHub para que se vean en tu web:</p>
+      <ol class="pasos" id="pasosManual"></ol>
+      <p class="ayuda">Tip: si conectas el panel con GitHub, todo esto se hace solo con un botón.</p>
+    </div>
+    <div class="d-pie"><span class="flex"></span><button class="btn primary" value="ok">Entendido</button></div>
+  </form>
+</dialog>
+
+<script src="categorias.js?v=20261004"></script>
+<script src="admin.js?v=20261004"></script>
+</body>
+</html>
