@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#20162f">
+  <meta name="referrer" content="no-referrer">
+  <title>AO Nexus · Boletas</title>
+  <link rel="icon" href="assets/favicon.svg">
+  <link rel="stylesheet" href="assets/app.css">
+  <script defer src="assets/supabase.js"></script>
+  <script defer src="assets/config.js"></script>
+  <script defer src="assets/app.js"></script>
+</head>
+<body>
+  <main id="loginView" class="entry">
+    <section class="brand-panel">
+      <a class="brand" href="./"><span class="mark">AO</span><span>AO NEXUS<small>BOLETAS</small></span></a>
+      <div class="brand-content"><span class="eyebrow">TU NEGOCIO, CONECTADO</span><h1>Una venta.<br>Todo en orden.</h1><p>Crea tus boletas, descarga el PDF y consulta el historial de tu equipo desde cualquier dispositivo.</p><div class="feature"><span>01</span> Datos compartidos y guardados en la nube</div><div class="feature"><span>02</span> PDF listo para compartir por WhatsApp</div><div class="feature"><span>03</span> Envío por correo cuando lo necesites</div></div>
+      <p class="brand-foot">AO Nexus · Herramienta de ventas</p>
+    </section>
+    <section class="entry-panel">
+      <div class="entry-card">
+        <span class="eyebrow">ACCESO DEL EQUIPO</span><h2 id="entryTitle">Ingresa a tu espacio</h2><p id="entrySubtitle" class="muted">Usa tu cuenta de esta aplicación.</p>
+        <form id="loginForm">
+          <label for="loginEmail">Correo</label><input id="loginEmail" type="email" autocomplete="username" required placeholder="tu@correo.com" maxlength="254">
+          <label for="loginPassword">Contraseña de la aplicación</label><input id="loginPassword" type="password" autocomplete="current-password" required>
+          <button id="loginButton" class="primary" type="submit">Ingresar</button>
+        </form>
+        <form id="activationForm" hidden>
+          <label for="ownerName">Tu nombre</label><input id="ownerName" maxlength="80" required placeholder="Administrador">
+          <label>Cuenta administradora</label><p class="account-email">aonexuspe@gmail.com</p>
+          <label for="ownerPassword">Crea una contraseña para esta web</label><input id="ownerPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
+          <label for="ownerPasswordAgain">Repite la contraseña</label><input id="ownerPasswordAgain" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
+          <p class="hint">Elige una clave propia de al menos 12 caracteres. Después podrás crear el acceso de tu socio.</p>
+          <button class="primary" type="submit">Activar mi cuenta</button>
+        </form>
+        <p id="entryMessage" class="message" role="status" aria-live="polite"></p>
+        <p class="entry-help">¿Necesitas acceso? Solicítalo al administrador de AO Nexus.</p>
+      </div>
+    </section>
+  </main>
+  <div id="appView" hidden>
+    <header class="app-header"><a class="brand compact" href="./"><span class="mark">AO</span><span>AO NEXUS<small>BOLETAS</small></span></a><nav aria-label="Menú principal"><button data-view="editor" class="nav-button active">Nueva boleta</button><button data-view="history" class="nav-button">Historial</button><button data-view="team" class="nav-button" id="teamNav" hidden>Equipo</button><button data-view="account" class="nav-button">Mi cuenta</button></nav><div class="user-menu"><span id="userName"></span><button id="logoutButton" class="quiet">Salir</button></div></header>
+    <div id="globalMessage" class="global-message" role="status" hidden></div>
+    <section id="editorView"><iframe id="receiptFrame" title="Generador de boletas AO Nexus"></iframe></section>
+    <section id="historyView" class="page" hidden>
+      <div class="page-title"><div><span class="eyebrow">REGISTRO COMPARTIDO</span><h1>Historial de boletas</h1><p class="muted">Las ventas de todo tu equipo, en un solo lugar.</p></div><button id="refreshHistory" class="secondary">Actualizar</button></div>
+      <div class="history-controls"><input id="historySearch" type="search" placeholder="Buscar por cliente o número" aria-label="Buscar boletas"><span id="historyCount" class="muted"></span></div>
+      <div class="table-wrap"><table><thead><tr><th>Boleta</th><th>Fecha</th><th>Cliente</th><th>Total</th><th>Correo</th><th><span class="sr-only">Acciones</span></th></tr></thead><tbody id="historyRows"></tbody></table><p id="historyEmpty" class="empty" hidden>Aún no hay boletas guardadas. Exporta tu primera venta para verla aquí.</p></div>
+      <div class="pagination"><button id="previousHistory" class="secondary">Anterior</button><span id="historyPage"></span><button id="nextHistory" class="secondary">Siguiente</button></div>
+    </section>
+    <section id="teamView" class="page" hidden>
+      <div class="page-title"><div><span class="eyebrow">ACCESOS DEL NEGOCIO</span><h1>Tu equipo</h1><p class="muted">Cada persona entra con su propia cuenta.</p></div></div>
+      <div class="team-grid"><section class="card"><h2>Crear un acceso</h2><form id="memberForm"><label for="memberName">Nombre</label><input id="memberName" maxlength="80" required><label for="memberEmail">Correo de tu socio</label><input id="memberEmail" type="email" maxlength="254" required><label for="memberPassword">Contraseña inicial de la aplicación</label><div class="input-action"><input id="memberPassword" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><button type="button" id="generatePassword" class="secondary">Generar</button></div><p class="hint">Comparte el acceso por tu medio habitual. Tu socio podrá cambiar esta clave en Mi cuenta.</p><button class="primary" type="submit">Crear acceso</button><p id="memberMessage" class="message" role="status"></p></form><div id="createdCredentials" hidden><p class="hint">Conserva estos datos para compartir el acceso.</p><pre id="createdCredentialsText" style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px"></pre><button id="copyCredentials" class="secondary" type="button">Copiar acceso</button><button id="clearCredentials" class="quiet" type="button">Ya lo guardé</button></div></section><section class="card"><h2>Personas con acceso</h2><div id="memberList"></div></section></div>
+      <section class="card numbering"><h2>Numeración de boletas</h2><p class="muted">El número se asigna al exportar. Usa el siguiente número libre de tu negocio.</p><form id="numberingForm"><div><label for="numberSeries">Serie</label><input id="numberSeries" value="B001" pattern="[A-Za-z0-9]{1,8}" maxlength="8" required></div><div><label for="nextNumber">Siguiente número</label><input id="nextNumber" inputmode="numeric" pattern="[0-9]{1,10}" required></div><button class="secondary" type="submit">Guardar numeración</button></form><p id="numberingMessage" class="message" role="status"></p></section>
+    </section>
+    <section id="accountView" class="page narrow" hidden><div class="page-title"><div><span class="eyebrow">TU ACCESO</span><h1>Mi cuenta</h1><p id="accountEmail" class="muted"></p></div></div><section class="card"><h2>Cambiar contraseña</h2><form id="passwordForm"><label for="currentPassword">Contraseña actual de la aplicación</label><input id="currentPassword" type="password" autocomplete="current-password" required><label for="newPassword">Nueva contraseña</label><input id="newPassword" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><label for="newPasswordAgain">Repetir nueva contraseña</label><input id="newPasswordAgain" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><button class="primary" type="submit">Guardar contraseña</button><p id="passwordMessage" class="message" role="status"></p></form></section></section>
+  </div>
+</body>
+</html>

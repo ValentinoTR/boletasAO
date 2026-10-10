@@ -1,0 +1,17 @@
+AO NEXUS BOLETAS - WEB CON SUPABASE
+
+1. Extrae el ZIP.
+2. En https://github.com/ValentinoTR/boletasAO pulsa Add file > Upload files.
+3. Arrastra los ARCHIVOS Y CARPETAS extraídos, no el ZIP ni una carpeta exterior que los contenga.
+4. El archivo index.html debe quedar en la RAÍZ del repositorio, junto a assets/ y boletas.html.
+5. Conserva los archivos de supabase/ y google-apps-script/. Son el código del servidor y la guía de correo.
+6. Pulsa Commit changes.
+7. En Settings > Pages elige Deploy from a branch, main y /(root). Guarda y espera la publicación.
+8. La web estará en https://valentinotr.github.io/boletasAO/ cuando GitHub termine.
+9. Abre el enlace privado de activación que te envié por separado y crea tu contraseña para la web.
+10. Dentro de Equipo crea el acceso de tu socio. En Correo de la empresa conecta Google una sola vez.
+
+Supabase ya tiene las tablas y la función activas. Tu socio usará su cuenta propia de esta web y no tendrá que configurar Gmail.
+La contraseña normal de Gmail no se incluye ni se usa en esta aplicación.
+
+Si GitHub muestra un conflicto con README.md, reemplázalo con la versión de este ZIP.
