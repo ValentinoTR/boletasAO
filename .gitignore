@@ -1,8 +1,0 @@
-node_modules/
-.env
-.env.*
-!.env.example
-supabase/.temp/
-supabase/.branches/
-*.local
-test-output/
