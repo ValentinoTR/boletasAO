@@ -5,6 +5,7 @@
     if(!/^\d{1,9}(\.\d{1,2})?$/.test(s))throw Error('Ingresa un importe válido con hasta dos decimales.');
     const [a,b='']=s.split('.');return Number(a)*100+Number(b.padEnd(2,'0'));
   };
+  const optionalCents=value=>String(value??'').trim()===''?0:cents(value);
   const realCost=p=>(p.moneda==='USD'?Number(p.costo)*Number(p.tipo_cambio):Number(p.costo))*(1+Number(p.impuesto||0)/100)+Number(p.peso_kg||0)*Number(p.costo_envio_kg||0)+Number(p.tax_usa||0)+Number(p.impuesto_peru||0)+Number(p.otros_gastos||0);
   const allocate=(purchase,units)=>{
     const manual=units.filter(u=>u.costo!==null&&u.costo!==undefined);
@@ -33,7 +34,7 @@
   const quantity=value=>{const text=String(value).trim();if(!/^\d{1,6}$/.test(text)||Number(text)>100000)throw Error('Ingresa una cantidad entera válida.');return Number(text);};
   const productStock=(product,units)=>product.managed?units.filter(u=>available(u)&&String(u.product_id)===String(product.id)).length:Number(product.reference_stock||0);
   const filterStock=(products,units,mode)=>products.filter(p=>mode==='replenish'?productStock(p,units)===0:productStock(p,units)>0);
-  const api={cents,realCost,allocate,validateParts,repriceParts,available,quantity,productStock,filterStock};
+  const api={cents,optionalCents,realCost,allocate,validateParts,repriceParts,available,quantity,productStock,filterStock};
   if(typeof window!=='undefined')window.AOSuiteCore=api;
   if(typeof module!=='undefined')module.exports=api;
 })();
