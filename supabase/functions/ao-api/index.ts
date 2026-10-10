@@ -61,8 +61,9 @@ async function mailConfig(db: ReturnType<typeof admin>) {
 async function send(db: ReturnType<typeof admin>, input: Record<string,unknown>, userId: string) {
   const receiptId=uuid(input.receiptId), job=validateJob(input.job), current=await mailConfig(db);
   if (!current) throw new MailError("El administrador debe activar el correo. Puedes seguir descargando el PDF.","not_configured",503);
-  const {data:receipt,error:receiptError}=await db.from("ao_receipts").select("payload,total_cents").eq("id",receiptId).maybeSingle();
+  const {data:receipt,error:receiptError}=await db.from("ao_receipts").select("payload,total_cents,deleted_at").eq("id",receiptId).maybeSingle();
   if (receiptError || !receipt) throw new MailError("Primero guarda la boleta en la nube.","invalid_receipt",400);
+  if (receipt.deleted_at) throw new MailError("Esta boleta fue eliminada y no puede enviarse por correo. Crea una nueva con los datos correctos.","receipt_deleted",409);
   const r=receipt.payload, total="S/ "+(receipt.total_cents/100).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
   if (job.to!==r.email || job.customer!==r.customer || job.series!==r.series || job.number!==r.number || job.date!==r.date || job.total!==total) throw new MailError("El envío no coincide con la boleta guardada.","conflict",409);
   const digest=await digestJob(job);

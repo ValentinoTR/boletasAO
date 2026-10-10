@@ -38,6 +38,12 @@
     if(!$("accountingFrame").getAttribute("src"))$("accountingFrame").src="accounting.html";
     await refresh();
   }
+  async function refreshAfterMutation() {
+    // An earlier read may have started before the write. Finish it, then read
+    // again so restored units and removed sales are reflected immediately.
+    if (loading) { try { await loading; } catch {} }
+    return refresh();
+  }
   function logout() {
     ++generation;db=null;member=null;loading=null;products=[];purchases=[];units=[];clients=[];sales=[];receipts=[];
     for(const id of ["productDialog","linkDialog","inventoryDialog"])if($(id).open)$(id).close();
@@ -176,5 +182,5 @@
   });
   $("inventoryDialog").addEventListener("close",()=>{if(pickResolve){const resolve=pickResolve;pickResolve=null;resolve(null);}});
   document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click",()=>$(b.dataset.close).close()));
-  window.AOSuite={initialize,refresh,navigate,logout,pickInventory};
+  window.AOSuite={initialize,refresh,refreshAfterMutation,navigate,logout,pickInventory};
 })();

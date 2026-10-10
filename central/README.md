@@ -10,6 +10,7 @@ Compras, inventario, ventas, boletas, clientes y productos de la tienda pública
 4. Al crear una boleta, seleccionar las unidades disponibles o registrar los productos comprados a otra tienda para esa venta. El conjunto de una PC puede imprimirse como una sola computadora.
 5. Escribir el precio final de la boleta. Si cambia respecto de los precios de sus componentes, se distribuye entre ellos conservando cada céntimo. Los costos quedan guardados para calcular la ganancia.
 6. Al emitir, la boleta, el comprador y la venta se guardan juntos. Las unidades dejan de estar disponibles. Descargar o reenviar una boleta emitida conserva el mismo registro.
+7. Para corregir una boleta equivocada, abrir **Boletas emitidas → Eliminar** y confirmar. Desaparece del historial y de las ventas; sus unidades vuelven al inventario y se recalcula la ganancia. Las compras externas se conservan como compras reales, con sus unidades disponibles para otra venta. Después se puede emitir la boleta correcta. El número eliminado queda reservado; los correos ya enviados y los PDF descargados no se retiran.
 
 El catálogo existente mantiene sus cantidades anteriores hasta que se vinculan unidades. Las compras privadas del proyecto anterior requieren la cuenta de ese contabilizador para importarse.
 
@@ -19,6 +20,9 @@ El catálogo existente mantiene sus cantidades anteriores hasta que se vinculan 
 - `dist/assets/suite.js`: catálogo, clientes, selección de componentes e importación.
 - `dist/assets/suite-core.js`: cálculos y reparto de precios en céntimos.
 - `database/suite.sql`: esquema inicial y funciones del inventario compartido; ya aplicado al proyecto de Boletas AO. No ejecutarlo otra vez como un cambio incremental.
+- `database/delete_receipts.sql`: actualización de eliminación del historial y reversión atómica de ventas; ya aplicada al proyecto actual. Conserva internamente el número y el registro original para impedir reintentos y duplicados. Solo el equipo con acceso activo puede eliminar.
+- `database/receipt_allocator.sql`: numerador de boletas con bloqueo de reintentos de registros eliminados.
+- `supabase/functions/ao-api/`: función de correo actualizada; bloquea el envío de boletas eliminadas.
 - `build_integrations.py`: prepara el catálogo público y las entradas hacia el panel central.
 - `integrations/contabilizador/legacy.html`: copia del contabilizador anterior para consulta durante la transición.
 
@@ -34,5 +38,7 @@ node --test tests/core.test.cjs tests/catalog.test.cjs
 ```
 
 `tests/transactions.sql` prueba contra PostgreSQL precio final, ganancias, cliente, stock, compras externas, importación sin duplicados y permisos. Su transacción termina con `ROLLBACK`; no conserva ventas de prueba ni avanza la numeración.
+
+`tests/deletion.sql` comprueba eliminación, recuperación del stock público, ganancias, reintentos sin duplicar stock, reventa de unidades recuperadas, boletas anteriores sin inventario, conservación de compras externas, correo en curso y permisos. También termina con `ROLLBACK`.
 
 Se verifican scripts, referencias de archivos y funciones de base de datos. En esta ejecución no se dispone de un navegador de prueba para comprobar visualmente todos los tamaños de pantalla.

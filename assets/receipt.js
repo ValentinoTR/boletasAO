@@ -98,8 +98,13 @@ async function exportPDF(){
  document.querySelectorAll('.export-btn').forEach(b=>{b.disabled=true;b.textContent='Guardando boleta…';});$('retryEmailBtn').disabled=true;
  try{
   if(!viewingIssued){const saved=await cloud.issue(cloudReceiptId,snapshot);data=normalizeData(saved.payload);cloudReceiptId=saved.id;viewingIssued=true;hydrate();$('sendEmail').checked=sendRequested;snapshot=structuredClone(data);saveDraft();cloud.saved();}
-  const bytes=await generatePDF(snapshot);download(bytes,filename('pdf',snapshot),'application/pdf');saveDraft();
-  try{await cloud.upload(cloudReceiptId,bytes);}catch(e){deliveryMessage('Boleta guardada y PDF descargado. No se pudo guardar la copia del PDF en la nube; puedes volver a exportarla desde el historial.',true,false);}
+  const issuedId=cloudReceiptId;
+  await cloud.ensureReceiptAvailable(issuedId);
+  const bytes=await generatePDF(snapshot);
+  if(cloudReceiptId!==issuedId||!viewingIssued)throw Error('La boleta fue eliminada o cambió durante la descarga. Actualiza el historial.');
+  download(bytes,filename('pdf',snapshot),'application/pdf');saveDraft();
+  try{await cloud.upload(issuedId,bytes);}catch(e){deliveryMessage('Boleta guardada y PDF descargado. No se pudo guardar la copia del PDF en la nube; puedes volver a exportarla desde el historial.',true,false);}
+  if(cloudReceiptId!==issuedId||!viewingIssued)throw Error('La boleta fue eliminada. Crea una nueva con los datos correctos.');
   if(sendRequested){pendingDelivery={requestId:crypto.randomUUID(),to:snapshot.email.trim(),customer:snapshot.customer,series:snapshot.series.toUpperCase(),number:snapshot.number,date:snapshot.date,total:formatMoney(calculate(snapshot).total),filename:filename('pdf',snapshot),pdfBase64:bytesToBase64(bytes)};await deliverPendingEmail();}
   else toast('Boleta guardada en la nube. PDF descargado para compartir.');
  }catch(e){$('errorBox').textContent=e.message||'No se pudo guardar la boleta. Revisa tu conexión e inténtalo otra vez.';$('errorBox').hidden=false;}
@@ -199,3 +204,10 @@ $('items').addEventListener('click',async e=>{
  }catch(error){toast(error.message);}finally{button.disabled=false;}
 });
 window.getInventoryIdsExcept=index=>data.items.flatMap((item,i)=>i===index?[]:(item.inventory||[]).filter(p=>p.source==='stock').map(p=>String(p.id)));
+window.resetDeletedReceipt=id=>{
+ if(cloudReceiptId!==id)return;
+ pendingDelivery=null;viewingIssued=false;cloudReceiptId=crypto.randomUUID();
+ data=emptyReceipt('110',data.series.toUpperCase(),data.observations);
+ resetErrors();hydrate();saveDraft();$('emailDeliveryStatus').hidden=true;
+ refreshCloudNumber();toast('La boleta fue eliminada. Puedes crear una nueva con los datos correctos.');
+};

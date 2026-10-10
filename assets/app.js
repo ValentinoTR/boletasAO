@@ -29,13 +29,17 @@
       if (lookupError || !nextMember?.active) { await client.auth.signOut(); showLogin(); message("entryMessage", "Tu cuenta no tiene acceso activo a AO Nexus. Contacta al administrador."); return; }
       if (generation !== authGeneration) return;
       user = nextUser; member = nextMember;
-      window.AOCloud = { userId: user.id, api, inventorySelection: (item,index) => window.AOSuite.pickInventory(item,index), issue: (id, receipt) => rpc("ao_suite_issue_receipt", { request_id: id, receipt }), nextNumber: series => rpc("ao_next_number", { series_name: series }), upload: async (id, bytes) => {
+      window.AOCloud = { userId: user.id, api, inventorySelection: (item,index) => window.AOSuite.pickInventory(item,index), issue: (id, receipt) => rpc("ao_suite_issue_receipt", { request_id: id, receipt }), ensureReceiptAvailable: async id => {
+        const { data, error } = await client.from("ao_receipts").select("id").eq("id", id).is("deleted_at", null).maybeSingle();
+        if (error) throw error;
+        if (!data) throw Error("Esta boleta fue eliminada. Actualiza el historial y crea una nueva con los datos correctos.");
+      }, nextNumber: series => rpc("ao_next_number", { series_name: series }), upload: async (id, bytes) => {
         const path = "receipts/" + id + ".pdf";
         const { error: uploadError } = await client.storage.from("ao-boletas").upload(path, bytes, { contentType: "application/pdf", upsert: true });
         if (uploadError) throw uploadError;
         const { error: updateError } = await client.from("ao_receipts").update({ pdf_path: path }).eq("id", id);
         if (updateError) throw updateError;
-      }, saved: () => { historyPage = 0; window.AOSuite.refresh().catch(()=>{}); $("accountingFrame").contentWindow?.refreshFromSuite?.(); } };
+      }, saved: () => { historyPage = 0; window.AOSuite.refreshAfterMutation().catch(()=>{}); $("accountingFrame").contentWindow?.refreshFromSuite?.(); } };
       $("userName").textContent = member.display_name; $("accountEmail").textContent = user.email; $("teamNav").hidden = member.role !== "owner";
       $("loginView").hidden = true; $("appView").hidden = false; $("loginPassword").value = "";
       if (!$("receiptFrame").getAttribute("src")) $("receiptFrame").src = "boletas.html";
@@ -72,9 +76,24 @@
     finally { button.disabled = false; }
   });
   $("logoutButton").addEventListener("click", async () => { const { error } = await client.auth.signOut(); if (error) globalMessage(errorText(error)); else showLogin(); });
+  async function deleteReceipt(row, button) {
+    if (button.disabled) return;
+    const confirmed = confirm("¿Eliminar la boleta " + row.series + "-" + row.number + " de " + row.customer + "?\n\nSe quitará del historial y de las ventas. Las unidades vinculadas volverán al inventario y se actualizará la ganancia.\n\nEl número no se reutilizará. Los PDF descargados y correos ya enviados seguirán en poder de sus destinatarios.");
+    if (!confirmed) return;
+    button.disabled = true; globalMessage("");
+    try {
+      const result = await rpc("ao_suite_delete_receipt", { receipt_key: row.id });
+      $("receiptFrame").contentWindow?.resetDeletedReceipt?.(row.id);
+      historyPage = Math.min(historyPage, Math.max(0, Math.ceil((historyTotal - 1) / 50) - 1));
+      const updates = await Promise.allSettled([loadHistory(), window.AOSuite.refreshAfterMutation(), $("accountingFrame").contentWindow?.refreshFromSuite?.()]);
+      const restored = Number(result.restored_units || 0);
+      globalMessage("Boleta " + row.series + "-" + row.number + " eliminada." + (restored ? " " + restored + (restored === 1 ? " unidad volvió" : " unidades volvieron") + " al inventario." : "") + (updates.some(r => r.status === "rejected") ? " Pulsa Actualizar para recargar los datos." : ""));
+    } catch (error) { globalMessage(errorText(error)); }
+    finally { button.disabled = false; }
+  }
   async function loadHistory() {
     $("historyRows").replaceChildren(); $("historyEmpty").hidden = true; $("historyCount").textContent = "Cargando…";
-    let query = client.from("ao_receipts").select("id,series,number,date,customer,total_cents,pdf_path,payload,ao_deliveries(state)", { count: "exact" }).order("created_at", { ascending: false }).range(historyPage * 50, historyPage * 50 + 49);
+    let query = client.from("ao_receipts").select("id,series,number,date,customer,total_cents,pdf_path,payload,ao_deliveries(state)", { count: "exact" }).is("deleted_at", null).order("created_at", { ascending: false }).range(historyPage * 50, historyPage * 50 + 49);
     const term = $("historySearch").value.trim().replace(/[^\p{L}\p{N}\s-]/gu, "").slice(0, 80);
     if (term) query = query.or("customer.ilike.*" + term + "*,number.ilike.*" + term + "*");
     const { data, error, count } = await query; if (error) throw error;
@@ -89,6 +108,9 @@
       if (row.pdf_path) { const pdf = document.createElement("button"); pdf.className = "quiet"; pdf.textContent = "PDF"; pdf.addEventListener("click", async () => {
         pdf.disabled = true; try { const { data: file, error: downloadError } = await client.storage.from("ao-boletas").download(row.pdf_path); if (downloadError) throw downloadError; const url = URL.createObjectURL(file), a = document.createElement("a"); a.href = url; a.download = "Boleta-" + row.series + "-" + row.number + ".pdf"; a.click(); setTimeout(() => URL.revokeObjectURL(url), 30000); } catch (error) { globalMessage(errorText(error)); } finally { pdf.disabled = false; }
       }); actions.append(pdf); }
+      const remove = document.createElement("button"); remove.type = "button"; remove.className = "quiet danger"; remove.textContent = "Eliminar";
+      remove.setAttribute("aria-label", "Eliminar boleta " + row.series + "-" + row.number);
+      remove.addEventListener("click", () => deleteReceipt(row, remove)); actions.append(remove);
       tr.append(actions); $("historyRows").append(tr);
     }
     $("previousHistory").disabled = historyPage === 0; $("nextHistory").disabled = (historyPage + 1) * 50 >= historyTotal; $("historyPage").textContent = "Página " + (historyPage + 1) + " de " + Math.max(1, Math.ceil(historyTotal / 50));
