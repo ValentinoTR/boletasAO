@@ -50,7 +50,7 @@ function toast(message){$('toast').textContent=message;$('toast').hidden=false;c
 function saveDraft(){try{localStorage.setItem(STORAGE_KEY,JSON.stringify({receipt:data,id:cloudReceiptId,issued:viewingIssued}));canStore=true;$('saveStatus').textContent=viewingIssued?'Boleta guardada en la nube':'Borrador en este dispositivo · la venta se registra al emitir la boleta';}catch(e){canStore=false;$('saveStatus').textContent='Usa Guardar copia para conservar tu boleta';}}
 function queueSave(){clearTimeout(saveTimer);$('saveStatus').textContent=canStore?'Guardando borrador…':'Usa Guardar copia para conservar tu boleta';saveTimer=setTimeout(saveDraft,250);}
 function updateDocumentField(){const type=data.docType;const config={DNI:['DNI del cliente','8 dígitos',8,'numeric'],RUC:['RUC del cliente','11 dígitos',11,'numeric'],CE:['N.º de carné','Número del documento',20,'text'],PAS:['N.º de pasaporte','Número del documento',20,'text'],NONE:['Documento','No aplica',20,'text']}[type];$('documentLabel').textContent=config[0];$('document').placeholder=config[1];$('document').maxLength=config[2];$('document').inputMode=config[3];$('document').disabled=type==='NONE';}
-function hydrate(){for(const id of fieldIds)$(id).value=data[id];updateDocumentField();renderItems();$('sendEmail').checked=false;pendingDelivery=null;$('emailDeliveryStatus').hidden=true;updateEmailButtons();update();lockIssuedFields();}
+function hydrate(){copyWarning='';for(const id of fieldIds)$(id).value=data[id];updateDocumentField();renderItems();$('sendEmail').checked=false;pendingDelivery=null;$('emailDeliveryStatus').hidden=true;updateEmailButtons();update();lockIssuedFields();}
 function syncReceiptDate(){
  if(viewingIssued)return;
  const currentDay=today();
@@ -103,7 +103,7 @@ async function exportPDF(){
   const bytes=await generatePDF(snapshot);
   if(cloudReceiptId!==issuedId||!viewingIssued)throw Error('La boleta fue eliminada o cambió durante la descarga. Actualiza el historial.');
   download(bytes,filename('pdf',snapshot),'application/pdf');saveDraft();
-  try{await cloud.upload(issuedId,bytes);}catch(e){deliveryMessage('Boleta guardada y PDF descargado. No se pudo guardar la copia del PDF en la nube; puedes volver a exportarla desde el historial.',true,false);}
+  try{await cloud.upload(issuedId,bytes);}catch(e){copyWarning='No se pudo guardar la copia del PDF en la nube; puedes volver a exportarla desde el historial.';deliveryMessage('Boleta guardada y PDF descargado.',true,false);}
   if(cloudReceiptId!==issuedId||!viewingIssued)throw Error('La boleta fue eliminada. Crea una nueva con los datos correctos.');
   if(sendRequested){pendingDelivery={requestId:crypto.randomUUID(),to:snapshot.email.trim(),customer:snapshot.customer,series:snapshot.series.toUpperCase(),number:snapshot.number,date:snapshot.date,total:formatMoney(calculate(snapshot).total),filename:filename('pdf',snapshot),pdfBase64:bytesToBase64(bytes)};if(await deliverPendingEmail())startNextReceipt('emitida y enviada');}
   else{toast('Boleta guardada en la nube. PDF descargado para compartir.');startNextReceipt('emitida y guardada');}
@@ -114,11 +114,11 @@ async function exportPDF(){
 function hasContent(){return !!(data.customer.trim()||data.document.trim()||data.email.trim()||data.items.some(i=>i.description.trim()||i.price.trim()||i.serial.trim()||i.code.trim()));}
 function resetErrors(){showErrors=false;displayErrors([]);pageIndex=0;}
 
-let emailService={available:false,configured:false,token:'',sender:''},pendingDelivery=null,exporting=false,autoAdvanceId=null;
+let emailService={available:false,configured:false,token:'',sender:''},pendingDelivery=null,exporting=false,autoAdvanceId=null,copyWarning='';
 const validEmail=value=>typeof value==='string'&&value.length<=254&&/^[^\s<>@,;:]+@[^\s<>@,;:]+\.[^\s<>@,;:]+$/.test(value.trim());
 function bytesToBase64(bytes){let out='';for(let offset=0;offset<bytes.length;offset+=32768)out+=String.fromCharCode(...bytes.subarray(offset,offset+32768));return btoa(out);}
 function updateEmailButtons(){if(exporting)return;const label=viewingIssued?($('sendEmail').checked?'Descargar y enviar':'Descargar PDF'):($('sendEmail').checked?'Emitir y enviar':'Emitir y descargar');$('exportBtn').innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12m-5-5 5 5 5-5M5 15v5h14v-5"/></svg>'+label;$('exportMobileBtn').textContent=label;}
-function deliveryMessage(message,problem=false,retry=false){$('emailDeliveryMessage').textContent=message;$('emailDeliveryStatus').hidden=false;$('emailDeliveryStatus').classList.toggle('problem',problem);$('retryEmailBtn').hidden=!retry;}
+function deliveryMessage(message,problem=false,retry=false){$('emailDeliveryMessage').textContent=message+(copyWarning&&!message.includes(copyWarning)?' '+copyWarning:'');if(copyWarning)problem=true;$('emailDeliveryStatus').hidden=false;$('emailDeliveryStatus').classList.toggle('problem',problem);$('retryEmailBtn').hidden=!retry;}
 async function emailAPI(path,payload){
  const action=path.split('/').pop();
  if(action==='send')return cloud.api('send',{job:payload,receiptId:cloudReceiptId});

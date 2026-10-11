@@ -35,10 +35,12 @@
   const productStock=(product,units)=>product.managed?units.filter(u=>available(u)&&String(u.product_id)===String(product.id)).length:Number(product.reference_stock||0);
   const filterStock=(products,units,mode)=>products.filter(p=>mode==='replenish'?productStock(p,units)===0:productStock(p,units)>0);
   // Productos del catálogo anterior: su cantidad es un número sin unidades reales, así que las ventas no pueden descontarla.
-  const legacyProducts=products=>products.filter(p=>!p.managed);
+  const legacyProducts=products=>products.filter(p=>!p.managed&&Number(p.reference_stock||0)>0);
+  // La función de stock registra hasta 1000 unidades por compra.
+  const activatableProducts=products=>legacyProducts(products).filter(p=>Number(p.reference_stock)<=1000);
   // Registra esa cantidad como unidades reales sin costo; desde entonces cada venta descuenta una unidad.
-  const legacyStockArgs=(product,requestKey,date)=>({request_key:requestKey,product_key:product.id,product_name:product.data.name,target_quantity:Number(product.reference_stock||0),expected_quantity:0,cost_per_unit:0,supplier:null,purchased_on:date});
-  const api={cents,optionalCents,legacyProducts,legacyStockArgs,realCost,allocate,validateParts,repriceParts,available,quantity,productStock,filterStock};
+  const legacyStockArgs=(product,requestKey,date)=>({request_key:requestKey,product_key:product.id,product_name:product.data.name,target_quantity:Number(product.reference_stock||0),expected_quantity:0,cost_per_unit:0,supplier:'Stock inicial (catálogo anterior)',purchased_on:date});
+  const api={cents,optionalCents,legacyProducts,activatableProducts,legacyStockArgs,realCost,allocate,validateParts,repriceParts,available,quantity,productStock,filterStock};
   if(typeof window!=='undefined')window.AOSuiteCore=api;
   if(typeof module!=='undefined')module.exports=api;
 })();

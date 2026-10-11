@@ -21,13 +21,14 @@ begin
   if function_stock<>2 then raise exception 'El catálogo anterior debía publicar 2 unidades'; end if;
 
   -- Argumentos que envía la app: cantidad anterior como unidades reales sin costo.
-  first_result:=public.ao_suite_set_stock(key1,legacy,'PRUEBA 7700X',2,0,0,null,current_date);
+  first_result:=public.ao_suite_set_stock(key1,legacy,'PRUEBA 7700X',2,0,0,'Stock inicial (catálogo anterior)',current_date);
   if (select managed from public.ao_products where id=legacy) is not true
     or (select reference_stock from public.ao_products where id=legacy)<>0
     or (select count(*) from public."COMPONENTES" where product_id=legacy and precio_venta is null and in_stock)<>2
     or (select costo from public."COMPRAS" where id=(first_result->>'purchase_id')::bigint)<>0
+    or (select proveedor from public."COMPRAS" where id=(first_result->>'purchase_id')::bigint) is distinct from 'Stock inicial (catálogo anterior)'
     then raise exception 'La activación no registró 2 unidades sin costo'; end if;
-  if public.ao_suite_set_stock(key1,legacy,'PRUEBA 7700X',2,0,0,null,current_date)<>first_result
+  if public.ao_suite_set_stock(key1,legacy,'PRUEBA 7700X',2,0,0,'Stock inicial (catálogo anterior)',current_date)<>first_result
     or (select count(*) from public."COMPONENTES" where product_id=legacy)<>2
     then raise exception 'Un reintento duplicó las unidades'; end if;
   select (e->>'stock')::integer into function_stock from jsonb_array_elements(public.ao_catalog_snapshot()->'productos') e where (e->>'id')::bigint=legacy;

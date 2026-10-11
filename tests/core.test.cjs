@@ -54,7 +54,10 @@ test('Una compra externa puede venderse sin indicar su costo',()=>{
 });
 test('Los productos del catálogo anterior se activan como unidades reales sin costo',()=>{
   const products=[{id:1,managed:false,reference_stock:2,data:{name:'Ryzen 7 7700X'}},{id:2,managed:true,reference_stock:0,data:{name:'SSD'}},{id:3,managed:false,reference_stock:0,data:{name:'Ryzen 5 5600'}}];
-  assert.deepEqual(core.legacyProducts(products).map(p=>p.id),[1,3]);
-  assert.deepEqual(core.legacyStockArgs(products[0],'key','2026-10-11'),{request_key:'key',product_key:1,product_name:'Ryzen 7 7700X',target_quantity:2,expected_quantity:0,cost_per_unit:0,supplier:null,purchased_on:'2026-10-11'});
-  assert.equal(core.legacyStockArgs(products[2],'k','2026-10-11').target_quantity,0);
+  // Solo cuentan los productos con cantidad: los de cantidad 0 siguen como «Para reponer» sin necesitar activación.
+  assert.deepEqual(core.legacyProducts(products).map(p=>p.id),[1]);
+  assert.deepEqual(core.legacyStockArgs(products[0],'key','2026-10-11'),{request_key:'key',product_key:1,product_name:'Ryzen 7 7700X',target_quantity:2,expected_quantity:0,cost_per_unit:0,supplier:'Stock inicial (catálogo anterior)',purchased_on:'2026-10-11'});
+  // La función de stock registra hasta 1000 unidades por compra: los productos mayores no se activan en bloque.
+  const big=[{id:7,managed:false,reference_stock:1000,data:{name:'A'}},{id:8,managed:false,reference_stock:1001,data:{name:'B'}}];
+  assert.deepEqual(core.legacyProducts(big).map(p=>p.id),[7,8]);assert.deepEqual(core.activatableProducts(big).map(p=>p.id),[7]);
 });
