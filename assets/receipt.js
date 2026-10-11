@@ -107,7 +107,7 @@ async function exportPDF(){
   if(cloudReceiptId!==issuedId||!viewingIssued)throw Error('La boleta fue eliminada. Crea una nueva con los datos correctos.');
   if(sendRequested){pendingDelivery={requestId:crypto.randomUUID(),to:snapshot.email.trim(),customer:snapshot.customer,series:snapshot.series.toUpperCase(),number:snapshot.number,date:snapshot.date,total:formatMoney(calculate(snapshot).total),filename:filename('pdf',snapshot),pdfBase64:bytesToBase64(bytes)};if(await deliverPendingEmail())startNextReceipt('emitida y enviada');}
   else{toast('Boleta guardada en la nube. PDF descargado para compartir.');startNextReceipt('emitida y guardada');}
- }catch(e){$('errorBox').textContent=e.message||'No se pudo guardar la boleta. Revisa tu conexión e inténtalo otra vez.';$('errorBox').hidden=false;}
+ }catch(e){$('errorBox').textContent=e.message||'No se pudo guardar la boleta. Revisa tu conexión e inténtalo otra vez.';$('errorBox').hidden=false;toast($('errorBox').textContent);$('errorBox').scrollIntoView({behavior:'smooth',block:'center'});}
  finally{exporting=false;document.querySelectorAll('.export-btn').forEach(b=>b.disabled=!ready);$('retryEmailBtn').disabled=false;updateEmailButtons();}
 }
 
@@ -148,8 +148,10 @@ async function startNextReceipt(outcome){
  if(!autoAdvanceId||autoAdvanceId!==cloudReceiptId||!viewingIssued)return;
  const done='Boleta '+data.series.toUpperCase()+'-'+data.number+' '+outcome+'.';
  const status={shown:!$('emailDeliveryStatus').hidden,text:$('emailDeliveryMessage').textContent,problem:$('emailDeliveryStatus').classList.contains('problem')};
+ // Mientras la base confirma el número, se muestra el siguiente al recién emitido (la base asigna el definitivo al emitir).
+ const expected=/^\d{1,10}$/.test(data.number)?String(Number(data.number)+1):'110';
  autoAdvanceId=null;pendingDelivery=null;viewingIssued=false;cloudReceiptId=crypto.randomUUID();
- data=emptyReceipt('110',data.series.toUpperCase(),data.observations);
+ data=emptyReceipt(expected,data.series.toUpperCase(),data.observations);
  resetErrors();hydrate();saveDraft();
  // El resultado de la boleta anterior (por ejemplo, que no se guardó su copia en la nube) sigue a la vista.
  if(status.shown)deliveryMessage(status.text,status.problem,false);
@@ -208,13 +210,14 @@ $('items').addEventListener('click',async e=>{
  const button=e.target.closest('[data-inventory]');if(!button||viewingIssued)return;
  const index=Number(button.dataset.inventory);button.disabled=true;
  try{const selected=await cloud.inventorySelection(structuredClone(data.items[index]),index);if(!selected)return;
-   const item=data.items[index];item.inventory=selected;const entered=centsFromInput(item.price);
+   const item=data.items[index],previous=item.inventory||[];item.inventory=selected;const entered=centsFromInput(item.price);
    const same=selected.every(p=>p.name===selected[0].name&&p.price===selected[0].price);
    item.quantity=same?String(selected.length):'1';
    item.inventoryMode=same?'units':'bundle';
    if(entered===null)item.price=same?selected[0].price:((selected.reduce((n,p)=>n+centsFromInput(p.price),0))/100).toFixed(2);
    syncInventoryPrice(item);
-   if(!item.description.trim())item.description=(same?selected[0].name:'Computadora completa: '+selected.map(p=>p.name).join(', ')).slice(0,350);
+   const autoDescription=parts=>parts.length?(parts.every(p=>p.name===parts[0].name)?parts[0].name:'Computadora completa: '+parts.map(p=>p.name).join(', ')).slice(0,350):'';
+   if(!item.description.trim()||item.description===autoDescription(previous))item.description=autoDescription(selected);
    renderItems();update();queueSave();
  }catch(error){toast(error.message);}finally{button.disabled=false;}
 });

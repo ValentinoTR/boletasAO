@@ -26,10 +26,10 @@ def main():
     changed = []
     for name in PAGES:
         page = DIST / name
-        old = page.read_text()
+        old = page.read_text(encoding='utf-8')
         new = REFERENCE.sub(fingerprint, old)
         if new != old:
-            page.write_text(new)
+            page.write_text(new, encoding='utf-8', newline='')
             changed.append(name)
     for name in PAGES:
         shutil.copy2(DIST / name, ROOT / name)

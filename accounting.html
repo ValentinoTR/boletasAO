@@ -2090,7 +2090,7 @@ function renderDashboard(){
   // invertidoStock: plata metida en lo que TODAVÍA no se vende (baja cuando vendes, sube cuando compras).
   // invertidoHistorico: todo lo que se gastó alguna vez (de referencia, nunca baja).
   // gananciaNeta: suma de (venta - costo) solo de lo YA vendido. No espera a que se venda todo un combo.
-  let invertidoStock = 0, invertidoHistorico = 0, recuperado = 0, gananciaNeta = 0;
+  let invertidoStock = 0, invertidoHistorico = 0, recuperado = 0, gananciaNeta = 0, ventasSinCosto = 0;
   const flat = getAllComponentsFlat();
 
   combos.forEach(c => {
@@ -2101,6 +2101,7 @@ function renderDashboard(){
     if(row.estado === 'vendido'){
       recuperado += row.sale;
       if(row.ganancia !== null) gananciaNeta += row.ganancia;
+      if(row.costo === 0 && row.sale > 0) ventasSinCosto++;
     }else if(row.estado === 'pendiente'){
       invertidoStock += row.costo;
     }
@@ -2116,7 +2117,7 @@ function renderDashboard(){
   const gEl = document.getElementById('m-ganancia');
   gEl.textContent = fmtSigned(gananciaNeta);
   gEl.className = 'kpi-value ' + (gananciaNeta >= 0 ? 'gain' : 'loss');
-  document.getElementById('m-ganancia-note').textContent = 'De lo ya vendido · no incluye lo que sigue en stock';
+  document.getElementById('m-ganancia-note').textContent = 'De lo ya vendido · no incluye lo que sigue en stock' + (ventasSinCosto ? ' · ' + plural(ventasSinCosto, 'venta sin costo cuenta', 'ventas sin costo cuentan') + ' su precio completo' : '');
 
   document.getElementById('m-stock-pendiente').textContent = fmt(invertidoHistorico);
   document.getElementById('m-stock-pendiente-note').textContent = plural(combos.length, 'compra registrada', 'compras registradas');
@@ -2545,7 +2546,7 @@ function renderHistorial(){
         <div class="cell-ellipsis" title="${escapeHtml(r.comboName)}">${escapeHtml(r.comboName)}</div>
         <div class="sub">${escapeHtml([r.proveedor, r.categoria].filter(Boolean).join(' · ') || 'Sin proveedor ni categoría')}</div>
       </td>
-      <td class="num">${r.costo !== null ? (r.costoEstimado ? '≈' : '') + fmt(r.costo) : '<span class="muted">—</span>'}</td>
+      <td class="num">${r.costo !== null ? (r.costoEstimado ? '≈' : '') + fmt(r.costo) + (r.costo === 0 && r.sale !== null ? ' <span class="muted" title="Sin costo indicado: su ganancia cuenta el precio completo">sin costo</span>' : '') : '<span class="muted">—</span>'}</td>
       <td class="num">${r.sale !== null ? fmt(r.sale) : '<span class="muted">—</span>'}</td>
       <td class="num ${moneyClass(r.ganancia)}">${r.ganancia !== null ? fmtSigned(r.ganancia) : '<span class="muted">—</span>'}</td>
       <td class="num">${fmtPct(r.margen)}</td>

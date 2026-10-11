@@ -9,7 +9,8 @@ do $$
 declare
   legacy bigint; empty_legacy bigint; huge bigint; key1 uuid:=gen_random_uuid(); rid uuid:=gen_random_uuid();
   first_result jsonb; unit bigint; receipt jsonb; rejected boolean;
-  function_stock integer;
+  function_stock integer; rid2 uuid:=gen_random_uuid(); rid3 uuid:=gen_random_uuid();
+  loose_product bigint; loose_purchase bigint; loose_unit bigint;
 begin
   insert into public.ao_products(data,web_price,published,managed,reference_stock)
     values('{"name":"PRUEBA 7700X","category":"cpu"}',850,true,false,2) returning id into legacy;
@@ -67,6 +68,33 @@ begin
   begin perform public.ao_suite_set_stock(gen_random_uuid(),huge,'PRUEBA ENORME',1200,0,0,null,current_date);
     exception when others then rejected:=true; end;
   if not rejected or (select managed from public.ao_products where id=huge) is true then raise exception 'Se activó un producto con más de 1000 unidades'; end if;
+
+  -- Un clic en un producto sin unidades: se vende como compra para esta venta, sin costo, y se puede eliminar.
+  perform public.ao_suite_issue_receipt(rid2,jsonb_build_object('version',1,'series','QAACT','number','2','date','2026-10-11','customer','PRUEBA SIN COSTO','docType','NONE',
+    'document','','address','','email','','observations','','items',jsonb_build_array(jsonb_build_object('description','SSD','serial','','code','','unit','NIU',
+    'quantity','1','price','300.00','inventoryMode','units','inventory',jsonb_build_array(jsonb_build_object('source','external','name','PRUEBA SSD','supplier','','cost','0.00','price','300.00'))))));
+  if (select cost from public.ao_sale_items where receipt_id=rid2)<>0 or (select sale_price from public.ao_sale_items where receipt_id=rid2)<>300
+    then raise exception 'La venta sin costo no quedó registrada con costo 0 y precio 300'; end if;
+  perform public.ao_suite_delete_receipt(rid2);
+  if exists(select 1 from public.ao_sale_items where receipt_id=rid2) then raise exception 'Eliminar la venta sin costo no la revirtió'; end if;
+
+  -- Unidad importada con el mismo nombre y sin vincular: el buscador la vincula (conserva su costo real) y la venta baja el stock publicado.
+  insert into public.ao_products(data,web_price,published,managed,reference_stock)
+    values('{"name":"PRUEBA 5500","category":"cpu"}',340,true,false,1) returning id into loose_product;
+  insert into public."COMPRAS"(nombre,costo,created_by) values('PRUEBA 5500',250,auth.uid()) returning id into loose_purchase;
+  insert into public."COMPONENTES"(compra_id,nombre) values(loose_purchase,'PRUEBA 5500') returning id into loose_unit;
+  perform public.ao_suite_link_stock(loose_product,array[loose_unit],1);
+  select (e->>'stock')::integer into function_stock from jsonb_array_elements(public.ao_catalog_snapshot()->'productos') e where (e->>'id')::bigint=loose_product;
+  if function_stock<>1 then raise exception 'Tras vincular debía publicar 1 unidad'; end if;
+  perform public.ao_suite_issue_receipt(rid3,jsonb_build_object('version',1,'series','QAACT','number','3','date','2026-10-11','customer','PRUEBA VINCULADA','docType','NONE',
+    'document','','address','','email','','observations','','items',jsonb_build_array(jsonb_build_object('description','5500','serial','','code','','unit','NIU',
+    'quantity','1','price','340.00','inventoryMode','units','inventory',jsonb_build_array(jsonb_build_object('source','stock','id',loose_unit,'name','PRUEBA 5500','price','340.00'))))));
+  select (e->>'stock')::integer into function_stock from jsonb_array_elements(public.ao_catalog_snapshot()->'productos') e where (e->>'id')::bigint=loose_product;
+  if function_stock<>0 or (select cost from public.ao_sale_items where receipt_id=rid3)<>250
+    then raise exception 'La unidad vinculada no bajó el stock o perdió su costo real'; end if;
+  perform public.ao_suite_delete_receipt(rid3);
+  select (e->>'stock')::integer into function_stock from jsonb_array_elements(public.ao_catalog_snapshot()->'productos') e where (e->>'id')::bigint=loose_product;
+  if function_stock<>1 then raise exception 'Eliminar la boleta no devolvió la unidad vinculada'; end if;
 end;
 $$;
 rollback;
