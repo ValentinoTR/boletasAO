@@ -17,7 +17,9 @@ test.before(async()=>{
   browser=await playwright.chromium.launch(executablePath?{executablePath}:{});
 });
 test.after(async()=>{await browser?.close();server?.close();});
-const product=(id,name,reference,managed=false,price=500)=>({id,data:{name,brand:'',category:'x',image:''},web_price:price,published:true,managed,reference_stock:reference});
+const product=(id,name,reference,managed=false,price=500,brand='')=>({id,data:{name,brand,category:'x',image:''},web_price:price,published:true,managed,reference_stock:reference});
+const unit=(id,compra,name,productId=null,extra={})=>({id,compra_id:compra,product_id:productId,nombre:name,costo:null,precio_venta:null,in_stock:true,...extra});
+const purchase=(id,name,extra={})=>({id,nombre:name,costo:0,moneda:'PEN',tipo_cambio:0,...extra});
 // Base de datos en memoria con el comportamiento de las funciones de stock que usa la app.
 async function open({products,purchases=[],units=[],latency=0}){
   const page=await (await browser.newContext({viewport:{width:1000,height:1000},acceptDownloads:true})).newPage();
@@ -40,99 +42,154 @@ async function open({products,purchases=[],units=[],latency=0}){
     window.__ready=window.AOSuite.initialize(client,{role:'owner'});
   },{products,purchases,units,latency});
   await page.evaluate(()=>window.__ready);
-  const pick=async()=>{await page.evaluate(()=>{window.__pick=window.AOSuite.pickInventory({inventory:[]},0);});await page.locator('#inventoryDialog[open]').waitFor();};
-  return {page,errors,pick,selected:()=>page.$$eval('#inventorySelected .selected-part',e=>e.length),message:()=>page.textContent('#inventoryMessage')};
+  // blocked: unidades ya elegidas en otra línea de la boleta.
+  const pick=async(inventory=[],blocked=[])=>{await page.evaluate(({inventory,blocked})=>{document.getElementById('receiptFrame').contentWindow.getInventoryIdsExcept=()=>blocked;window.__pick=window.AOSuite.pickInventory({inventory},0);},{inventory,blocked});await page.locator('#inventoryDialog[open]').waitFor();};
+  const search=async text=>{await page.fill('#inventorySearch',text);await page.waitForTimeout(250);};
+  const added=n=>page.waitForFunction(n=>document.querySelectorAll('#inventorySelected .selected-part').length===n,n);
+  return {page,errors,pick,search,added,selected:()=>page.$$eval('#inventorySelected .selected-part',e=>e.length),message:()=>page.textContent('#inventoryMessage'),
+    rows:()=>page.$$eval('#inventoryUnits .catalogue-row',rows=>rows.map(r=>r.querySelector('strong').textContent+' | '+r.querySelector('small').textContent)),
+    parts:()=>page.evaluate(()=>window.__pick)};
 }
 const skip=!playwright&&'Playwright no está instalado';
 
-const rowNames=s=>s.page.$$eval('#inventoryUnits .catalogue-row',rows=>rows.map(r=>r.querySelector('strong').textContent+' | '+r.querySelector('small').textContent));
-
 test('«Mi stock» muestra solo lo que hay en stock, un renglón por producto y sin costos',{skip},async()=>{
   const s=await open({products:[product(1,'RYZEN 7 7700X',0,true,850),product(2,'RYZEN 7 9800X3D',1,false,1800),product(3,'RYZEN 9 9950X3D',0,false,2600),product(4,'SSD NVMe 1 TB',0,true,300)],
-    purchases:[{id:7,nombre:'RYZEN 7 7700X',costo:1400,moneda:'PEN',tipo_cambio:0},{id:8,nombre:'Cable HDMI',costo:20,moneda:'PEN',tipo_cambio:0}],
-    units:[{id:70,compra_id:7,product_id:1,nombre:'RYZEN 7 7700X',costo:null,precio_venta:null,in_stock:true},{id:71,compra_id:7,product_id:1,nombre:'RYZEN 7 7700X',costo:null,precio_venta:null,in_stock:true},{id:80,compra_id:8,product_id:null,nombre:'Cable HDMI',costo:null,precio_venta:null,in_stock:true}]});
+    purchases:[purchase(7,'RYZEN 7 7700X'),purchase(8,'Cable HDMI')],units:[unit(70,7,'RYZEN 7 7700X',1),unit(71,7,'RYZEN 7 7700X',1),unit(80,8,'Cable HDMI')]});
   await s.pick();
-  assert.deepEqual(await rowNames(s),['Cable HDMI | 1 en stock','RYZEN 7 7700X | 2 en stock','RYZEN 7 9800X3D | 1 en stock']);
-  assert.doesNotMatch(await s.page.textContent('#inventoryDialog'),/costo repartido|sin costo indicado|S\/ 0\.00 /,'no se muestran costos');
+  assert.deepEqual(await s.rows(),['Cable HDMI | 1 en stock','RYZEN 7 7700X | 2 en stock','RYZEN 7 9800X3D | 1 en stock']);
+  assert.doesNotMatch(await s.page.textContent('#inventoryDialog'),/costo|costó/i,'no hay costos en el buscador');
+  assert.equal(await s.page.$$eval('#externalSupplier,#externalCost',e=>e.length),0,'sin campos de tienda ni de costo');
   assert.equal(await s.page.$eval('#externalBox',d=>d.open),false,'el formulario de otra tienda empieza plegado');
-  await s.page.fill('#inventorySearch','9950');
-  assert.deepEqual(await rowNames(s),[]);assert.match(await s.page.textContent('#inventoryUnits'),/No tienes «9950» en stock/);
-  await s.page.fill('#inventorySearch','ryzen');
-  assert.doesNotMatch(await s.page.textContent('#inventoryCatalogue'),/«ryzen»/,'lo escrito no se ofrece como otra tienda si coincide con tu stock');
+  await s.search('9950');
+  assert.deepEqual(await s.rows(),[]);assert.match(await s.page.textContent('#inventoryUnits'),/No tienes «9950» en stock/);
   assert.match(await s.page.textContent('#inventoryCatalogue'),/RYZEN 9 9950X3D.*Sin stock/s,'lo que no tienes solo aparece al buscarlo');
+  assert.doesNotMatch(await s.page.textContent('#inventoryCatalogue'),/«9950»/,'no ofrece lo escrito si ya coincide con un producto de tu web');
+});
+
+test('La búsqueda encuentra el producto con otras palabras, en otro orden o con la marca',{skip},async()=>{
+  const s=await open({products:[product(1,'RYZEN 9 9900X',1,false,1700,'AMD'),product(2,'SSD KINGSTON NV2 1TB',2,false,300),product(3,'CORE ULTRA 9 285K',1,false,2900)]});
+  await s.pick();
+  for(const [term,name] of [['AMD Ryzen 9 9900X','RYZEN 9 9900X'],['9900x ryzen','RYZEN 9 9900X'],['ssd 1 tb','SSD KINGSTON NV2 1TB'],['Intel Core Ultra 285K','CORE ULTRA 9 285K']]){
+    await s.search(term);
+    assert.deepEqual((await s.rows()).map(r=>r.split(' | ')[0]),[name],'«'+term+'»');
+    assert.doesNotMatch(await s.page.textContent('#inventoryCatalogue'),/producto de otra tienda/,'«'+term+'» no se ofrece como de otra tienda');
+  }
 });
 
 test('Agregar un producto con stock no pide formulario y avisa cuánto quedará',{skip},async()=>{
-  const s=await open({products:[product(1,'RYZEN 7 7700X',0,true,850)],purchases:[{id:7,nombre:'RYZEN 7 7700X',costo:1400,moneda:'PEN',tipo_cambio:0}],
-    units:[{id:70,compra_id:7,product_id:1,nombre:'RYZEN 7 7700X',costo:null,precio_venta:null,in_stock:true},{id:71,compra_id:7,product_id:1,nombre:'RYZEN 7 7700X',costo:null,precio_venta:null,in_stock:true}]});
-  await s.pick();await s.page.click('[data-sell-product="1"]');
-  await s.page.waitForFunction(()=>document.querySelectorAll('#inventorySelected .selected-part').length===1);
-  assert.match(await s.message(),/te quedarán 1/);assert.deepEqual(await rowNames(s),['RYZEN 7 7700X | 1 en stock']);
-  await s.page.click('[data-sell-product="1"]');await s.page.waitForFunction(()=>document.querySelectorAll('#inventorySelected .selected-part').length===2);
-  assert.match(await s.message(),/te quedará 0/);assert.deepEqual(await rowNames(s),[]);
-  await s.page.fill('#inventorySearch','7700');
+  const s=await open({products:[product(1,'RYZEN 7 7700X',0,true,850)],purchases:[purchase(7,'RYZEN 7 7700X')],units:[unit(70,7,'RYZEN 7 7700X',1),unit(71,7,'RYZEN 7 7700X',1)]});
+  await s.pick();await s.page.click('[data-sell-product="1"]');await s.added(1);
+  assert.match(await s.message(),/te quedará 1/);assert.deepEqual(await s.rows(),['RYZEN 7 7700X | 1 en stock']);
+  assert.equal(await s.page.evaluate(()=>document.activeElement.id),'inventorySearch','se puede seguir buscando');
+  await s.page.click('[data-sell-product="1"]');await s.added(2);
+  assert.match(await s.message(),/te quedará 0/);assert.deepEqual(await s.rows(),[]);
+  await s.search('7700');
   assert.equal(await s.page.textContent('#inventoryCatalogue'),'','lo que ya está en esta venta no aparece como «sin stock»');
   await s.page.click('#inventoryConfirm');
-  assert.deepEqual((await s.page.evaluate(()=>window.__pick)).map(p=>p.source+':'+p.price),['stock:850.00','stock:850.00']);
+  assert.deepEqual((await s.parts()).map(p=>p.source+':'+p.name+':'+p.price),['stock:RYZEN 7 7700X:850.00','stock:RYZEN 7 7700X:850.00']);
   assert.deepEqual(s.errors,[]);
+});
+
+test('Agregar toma la unidad del producto elegido y respeta las de otra línea de la boleta',{skip},async()=>{
+  const s=await open({products:[product(1,'RYZEN 7 7700X',0,true,850),product(2,'RYZEN 7 9800X3D',0,true,1800)],purchases:[purchase(7,'mix')],
+    units:[unit(70,7,'RYZEN 7 7700X',1),unit(71,7,'RYZEN 7 9800X3D',2),unit(72,7,'RYZEN 7 9800X3D',2)]});
+  await s.pick([],[71]);
+  assert.deepEqual(await s.rows(),['RYZEN 7 7700X | 1 en stock','RYZEN 7 9800X3D | 1 en stock'],'la unidad de otra línea no cuenta');
+  await s.page.click('[data-sell-product="2"]');await s.added(1);await s.page.click('#inventoryConfirm');
+  assert.deepEqual((await s.parts()).map(p=>p.id),[72]);
+});
+
+test('El mismo producto con unidades de nombres o precios distintos queda en una sola línea',{skip},async()=>{
+  const s=await open({products:[product(1,'SSD KINGSTON NV2 1TB M.2 NVMe',0,true,300)],purchases:[purchase(7,'ssd')],
+    units:[unit(70,7,'SSD KINGSTON NV2 1TB',1,{precio_sugerido:280}),unit(71,7,'SSD KINGSTON NV2 1TB M.2 NVMe',1)]});
+  await s.pick();await s.page.click('[data-sell-product="1"]');await s.added(1);await s.page.click('[data-sell-product="1"]');await s.added(2);
+  await s.page.click('#inventoryConfirm');
+  const parts=await s.parts();
+  assert.equal(new Set(parts.map(p=>p.name+'|'+p.price)).size,1,'mismo nombre y precio: la boleta lo imprime como una línea con cantidad 2');
+  assert.equal(parts[0].price,'300.00','usa el precio que se muestra (el de tu web)');
 });
 
 test('Un producto del catálogo anterior se registra en el stock y la venta usa una de sus unidades',{skip},async()=>{
   const s=await open({products:[product(1,'RYZEN 5 5500',1,false,340)]});
   await s.pick();
-  assert.deepEqual(await rowNames(s),['RYZEN 5 5500 | 1 en stock']);
-  await s.page.dblclick('[data-sell-product="1"]');
-  await s.page.waitForFunction(()=>document.querySelectorAll('#inventorySelected .selected-part').length===1);
+  assert.deepEqual(await s.rows(),['RYZEN 5 5500 | 1 en stock']);
+  await s.page.dblclick('[data-sell-product="1"]');await s.added(1);
   const calls=await s.page.evaluate(()=>window.__rpc.filter(c=>c.name==='ao_suite_set_stock').map(c=>c.args));
   assert.equal(calls.length,1,'un doble clic envía una sola activación');
   assert.equal(calls[0].target_quantity,1);assert.equal(calls[0].expected_quantity,0);
   assert.match(await s.message(),/te quedará 0/);
   await s.page.click('#inventoryConfirm');
-  const parts=await s.page.evaluate(()=>window.__pick);
+  const parts=await s.parts();
   assert.equal(parts.length,1);assert.equal(parts[0].source,'stock');assert.equal(parts[0].price,'340.00');
   assert.equal(await s.page.evaluate(id=>window.__db.COMPONENTES.find(c=>c.id===id).product_id,parts[0].id),1);
 });
 
-test('Unidades importadas con el mismo nombre cuentan como stock del producto y se vinculan al agregarlo',{skip},async()=>{
-  const s=await open({products:[product(1,'RYZEN 5 5500',1,false,340)],purchases:[{id:7,nombre:'RYZEN 5 5500',costo:250,moneda:'PEN',tipo_cambio:0}],units:[{id:70,compra_id:7,product_id:null,nombre:'Ryzen 5  5500',costo:null,precio_venta:null,in_stock:true}]});
+test('Unidades de Compras con el mismo nombre se vinculan; si la web indica más, se completa la diferencia',{skip},async()=>{
+  const s=await open({products:[product(1,'RYZEN 5 5500',1,false,340),product(2,'RYZEN 7 7800X3D',2,false,1799)],purchases:[purchase(7,'importado',{costo:250})],
+    units:[unit(70,7,'Ryzen 5  5500'),unit(71,7,'RYZEN 7 7800X3D')]});
   await s.pick();
-  assert.deepEqual(await rowNames(s),['RYZEN 5 5500 | 1 en stock'],'un solo renglón, sin duplicar la unidad importada');
-  await s.page.click('[data-sell-product="1"]');
-  await s.page.waitForFunction(()=>document.querySelectorAll('#inventorySelected .selected-part').length===1);
-  assert.deepEqual(await s.page.evaluate(()=>window.__rpc.map(c=>c.name)),['ao_suite_link_stock'],'vincula en lugar de crear unidades nuevas');
+  assert.deepEqual(await s.rows(),['RYZEN 5 5500 | 1 en stock','RYZEN 7 7800X3D | 2 en stock'],'un renglón por producto, sin duplicar lo importado');
+  await s.page.click('[data-sell-product="1"]');await s.added(1);
+  await s.page.click('[data-sell-product="2"]');await s.added(2);
+  assert.deepEqual(await s.page.evaluate(()=>window.__rpc.map(c=>c.name+':'+c.args.product_key+':'+(c.args.target_quantity??c.args.expected_stock))),
+    ['ao_suite_link_stock:1:1','ao_suite_link_stock:2:1','ao_suite_set_stock:2:2'],'vincula lo importado y completa la cantidad de la web');
+  assert.match(await s.message(),/te quedará 1/);
   await s.page.click('#inventoryConfirm');
-  assert.equal((await s.page.evaluate(()=>window.__pick))[0].id,70);
+  assert.equal((await s.parts())[0].id,70,'el 5500 usa la unidad importada (conserva su costo)');
 });
 
-test('Lo que no está en stock se vende igual sin cambiar ningún stock',{skip},async()=>{
-  const s=await open({products:[product(1,'SSD NVMe 1 TB',0,true,300)]});
-  await s.pick();await s.page.fill('#inventorySearch','ssd');await s.page.click('#inventoryCatalogue [data-sell-product="1"]');
-  await s.page.waitForFunction(()=>document.querySelectorAll('#inventorySelected .selected-part').length===1);
-  assert.match(await s.page.textContent('#inventorySelected'),/No está en tu stock/);
+test('Lo de Compras sin producto en la web se vende por nombre, sin tocar unidades vinculadas a otro producto',{skip},async()=>{
+  const s=await open({products:[product(1,'RYZEN 7 9800X3D',0,true,1800)],purchases:[purchase(9,'Procesador AMD Ryzen 7 9800X3D')],
+    units:[unit(90,9,'Procesador AMD Ryzen 7 9800X3D',1),unit(91,9,'Procesador AMD Ryzen 7 9800X3D'),unit(92,9,'Procesador AMD Ryzen 7 9800X3D')]});
+  await s.pick();
+  assert.deepEqual(await s.rows(),['Procesador AMD Ryzen 7 9800X3D | 2 en stock','RYZEN 7 9800X3D | 1 en stock']);
+  await s.page.click('[data-sell-loose]');await s.added(1);
+  assert.match(await s.message(),/Escribe su precio/);
   await s.page.click('#inventoryConfirm');
-  assert.deepEqual(await s.page.evaluate(()=>window.__pick),[{source:'external',name:'SSD NVMe 1 TB',supplier:'',cost:'0.00',price:'300.00'}]);
+  assert.match(await s.message(),/no tiene precio de venta/,'no se vende a S/ 0.00');
+  await s.page.fill('[data-part-price="0"]','1500');await s.page.click('#inventoryConfirm');
+  assert.notEqual((await s.parts())[0].id,90,'no toma la unidad vinculada al producto de la web');
 });
 
-test('Escribir a mano un producto que tienes en stock avisa antes de venderlo como de otra tienda',{skip},async()=>{
-  const s=await open({products:[product(1,'RYZEN 5 5500',1,false,340)]});
+test('Lo que volvió al eliminar una venta sin stock no se cuenta como stock',{skip},async()=>{
+  const s=await open({products:[product(1,'RYZEN 9 9950X3D',0,false,2600)],purchases:[purchase(9,'RYZEN 9 9950X3D',{proveedor:'Venta sin stock'})],units:[unit(90,9,'RYZEN 9 9950X3D',null,{costo:0})]});
+  await s.pick();
+  assert.deepEqual(await s.rows(),[]);
+  await s.search('9950');
+  assert.match(await s.page.textContent('#inventoryCatalogue'),/RYZEN 9 9950X3D.*Sin stock/s);
+  await s.page.click('#inventoryCatalogue [data-sell-product="1"]');await s.added(1);
+  await s.page.click('#inventoryConfirm');
+  assert.deepEqual(await s.parts(),[{source:'external',name:'RYZEN 9 9950X3D',supplier:'Venta sin stock',cost:'0.00',price:'2600.00'}]);
+  assert.deepEqual(await s.page.evaluate(()=>window.__rpc),[],'no se vinculó ni publicó nada');
+});
+
+test('Escribir a mano algo que tienes en stock avisa antes de venderlo como de otra tienda',{skip},async()=>{
+  const s=await open({products:[product(1,'RYZEN 9 9900X',1,false,1700,'AMD')]});
   await s.pick();await s.page.click('#externalBox summary');
-  await s.page.fill('#externalName','ryzen 5 5500');await s.page.fill('#externalPrice','340');
+  await s.page.fill('#externalName','AMD Ryzen 9900X');await s.page.fill('#externalPrice','1700');
   await s.page.click('#inventoryConfirm');
-  assert.match(await s.message(),/Tienes 1 de «RYZEN 5 5500» en tu stock/);assert.equal(await s.selected(),0);
+  assert.match(await s.message(),/Tienes «RYZEN 9 9900X» en tu stock/);assert.equal(await s.selected(),0);
   await s.page.click('#inventoryConfirm');
-  assert.equal((await s.page.evaluate(()=>window.__pick))[0].source,'external','al insistir se vende como de otra tienda');
+  assert.equal((await s.parts())[0].source,'external','al insistir se vende como de otra tienda');
 });
 
-test('Otra tienda: solo nombre y precio; coma decimal; Enter; costo inválido se rechaza',{skip},async()=>{
+test('Otra tienda: solo nombre y precio; coma decimal; Enter; lo escrito con el apartado cerrado no se agrega',{skip},async()=>{
   const s=await open({products:[]});
-  await s.pick();await s.page.fill('#inventorySearch','Monitor 24');await s.page.click('[data-use-other]');
+  await s.pick();await s.search('Monitor 24');await s.page.click('[data-use-other]');
   assert.equal(await s.page.$eval('#externalBox',d=>d.open),true);assert.equal(await s.page.inputValue('#externalName'),'Monitor 24');
   await s.page.fill('#externalPrice','1800,50');await s.page.press('#externalPrice','Enter');
   assert.equal(await s.selected(),1);assert.equal(await s.page.inputValue('[data-part-price="0"]'),'1800.50');
-  await s.page.fill('#externalName','Cable');await s.page.fill('#externalPrice','10');await s.page.fill('#externalCost','S/ 8');await s.page.click('#addExternal');
-  assert.match(await s.message(),/importe válido/);assert.equal(await s.selected(),1);
-  await s.page.fill('#externalCost','');await s.page.click('#inventoryConfirm');
-  assert.equal((await s.page.evaluate(()=>window.__pick)).length,2,'confirmar con el formulario lleno lo agrega');
+  await s.page.fill('#externalName','Cable');await s.page.click('#externalBox summary');
+  await s.page.click('#inventoryConfirm');
+  assert.deepEqual((await s.parts()).map(p=>p.name+':'+p.supplier),['Monitor 24:Venta sin stock']);
+});
+
+test('Varios productos distintos avisan que se imprimen en una sola línea',{skip},async()=>{
+  const s=await open({products:[product(1,'RYZEN 5 5500',0,true,340),product(2,'SSD',0,true,300)],purchases:[purchase(7,'x')],units:[unit(70,7,'RYZEN 5 5500',1),unit(71,7,'SSD',2)]});
+  await s.pick();await s.page.click('[data-sell-product="1"]');await s.added(1);
+  assert.doesNotMatch(await s.page.textContent('#inventorySelected'),/una sola línea/);
+  await s.page.click('[data-sell-product="2"]');await s.added(2);
+  assert.match(await s.page.textContent('#inventorySelected'),/una sola línea/);
 });
 
 test('Confirmar sin elegir nada explica qué hacer',{skip},async()=>{
@@ -141,11 +198,10 @@ test('Confirmar sin elegir nada explica qué hacer',{skip},async()=>{
 });
 
 test('Una unidad que ya no está disponible no se puede usar en la venta',{skip},async()=>{
-  const s=await open({products:[product(1,'SSD',0,true,300)],purchases:[{id:7,nombre:'SSD',costo:200,moneda:'PEN',tipo_cambio:0}],units:[{id:70,compra_id:7,product_id:1,nombre:'SSD',costo:null,precio_venta:null,in_stock:true}]});
-  await s.page.evaluate(()=>{window.__pick=window.AOSuite.pickInventory({inventory:[{source:'stock',id:70,name:'SSD',price:'300.00'}]},0);});
-  await s.page.locator('#inventoryDialog[open]').waitFor();
+  const s=await open({products:[product(1,'SSD',0,true,300)],purchases:[purchase(7,'SSD')],units:[unit(70,7,'SSD',1)]});
+  await s.pick([{source:'stock',id:70,name:'SSD',price:'300.00'}]);
   await s.page.evaluate(()=>{window.__db.COMPONENTES[0].precio_venta=300;});await s.page.evaluate(()=>window.AOSuite.refresh());
-  await s.page.fill('#inventorySearch','x');await s.page.fill('#inventorySearch','');
+  await s.search('x');await s.search('');
   assert.match(await s.page.textContent('#inventorySelected'),/ya no está disponible/);
   await s.page.click('#inventoryConfirm');
   assert.match(await s.message(),/ya no está disponible/);assert.equal(await s.page.$eval('#inventoryDialog',d=>d.open),true);
@@ -156,7 +212,7 @@ test('Mientras se agrega un producto, otro «Agregar» espera su turno',{skip},a
   await s.pick();
   await s.page.click('[data-sell-product="1"]');await s.page.click('[data-sell-product="2"]');
   assert.match(await s.message(),/Hay otro producto agregándose/);
-  await s.page.waitForFunction(()=>document.querySelectorAll('#inventorySelected .selected-part').length===1);
+  await s.added(1);
   assert.equal(await s.page.evaluate(()=>window.__rpc.length),1);
 });
 

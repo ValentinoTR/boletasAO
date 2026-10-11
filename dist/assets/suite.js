@@ -134,30 +134,66 @@
     try{const count=core.quantity($("stockQuantity").value),target=stockRestocking?stockExpected+count:count;const result=await rpc('ao_suite_set_stock',{request_key:stockRequest,product_key:stockEditing.id||null,product_name:stockEditing.data.name,target_quantity:target,expected_quantity:stockExpected,cost_per_unit:target>stockExpected?core.optionalCents($("stockCost").value)/100:null,supplier:$("stockSupplier").value.trim()||null,purchased_on:$("stockDate").value||today()});await refreshAfterMutation();$("accountingFrame").contentWindow?.refreshFromSuite?.();$("stockDialog").close();toast('Stock actualizado: '+result.quantity+' unidad(es) disponibles.');}
     catch(error){report('stockMessage',error);}finally{button.disabled=false;}
   });
-  // Registra la cantidad del catálogo anterior como unidades reales sin costo para que las ventas descuenten stock.
-  const activateStock=product=>rpc('ao_suite_set_stock',core.legacyStockArgs(product,crypto.randomUUID(),today()));
-  let activatingAll=false,activationCancelled=false;
-  // Por producto del catálogo anterior: vincular las unidades que ya están en Compras con su nombre (conservan su costo)
-  // o, si no hay, registrar su cantidad como unidades sin costo. Si las cantidades no coinciden, se deja para «Compartir stock».
-  function activationPlan(p){
-    const loose=looseUnitsFor(p);
-    if(!loose.length)return {kind:"create"};
-    return loose.length===Number(p.reference_stock)?{kind:"link",units:loose}:{kind:"review",loose:loose.length};
+  // ---------- Stock para vender: reglas compartidas por el buscador de la boleta y la activación del catálogo anterior ----------
+  // Compras creadas al vender algo que no estaba en tu stock. Si se elimina esa boleta vuelven como unidades, pero no son stock real.
+  const NO_STOCK_SUPPLIER="Venta sin stock";
+  const keyCache=new Map();
+  // Compara nombres sin mayúsculas, tildes ni espacios repetidos.
+  const nameKey=value=>{const text=String(value||"");let key=keyCache.get(text);if(key===undefined){key=text.normalize("NFD").replace(/[̀-ͯ]/g,"").toLocaleLowerCase("es").replace(/\s+/g," ").trim();keyCache.set(text,key);}return key;};
+  const compactKey=value=>nameKey(value).replace(/[^a-z0-9ñ]/g,"");
+  // La búsqueda acepta las palabras en cualquier orden y sin importar espacios o guiones («AMD Ryzen 9 9900X», «1 TB», «B850-F»).
+  const searchTokens=term=>nameKey(term).split(" ").map(word=>word.replace(/[^a-z0-9ñ]/g,"")).filter(Boolean);
+  const matchesTokens=(text,tokens)=>{const c=compactKey(text);return tokens.every(word=>c.includes(word));};
+  const modelTokens=tokens=>tokens.filter(word=>/\d/.test(word)&&word.length>=3);
+  const productText=p=>p.data.name+" "+(p.data.brand||"");
+  // Productos que coinciden con lo buscado; si ninguno tiene todas las palabras, los que comparten el modelo (por ejemplo «9900x»).
+  function searchProducts(list,term,text=productText){
+    const tokens=searchTokens(term);if(!tokens.length)return list;
+    const all=list.filter(x=>matchesTokens(text(x),tokens));if(all.length)return all;
+    const models=modelTokens(tokens);return models.length?list.filter(x=>matchesTokens(text(x),models)):[];
   }
+  // Índice del stock disponible: unidades por producto, una ficha por nombre y unidades de Compras sin vincular agrupadas por nombre.
+  function stockIndex(){
+    const byProduct=new Map(),ownerByKey=new Map(),looseByKey=new Map(),productIds=new Set(products.map(p=>String(p.id)));
+    const noStock=new Set(purchases.filter(c=>c.proveedor===NO_STOCK_SUPPLIER).map(c=>String(c.id)));
+    for(const p of [...products].sort((x,y)=>Number(!!y.managed)-Number(!!x.managed))){const key=nameKey(p.data.name);if(!ownerByKey.has(key))ownerByKey.set(key,p);}
+    for(const u of units){
+      if(!available(u))continue;
+      if(u.product_id&&productIds.has(String(u.product_id))){const id=String(u.product_id);if(!byProduct.has(id))byProduct.set(id,[]);byProduct.get(id).push(u);continue;}
+      if(noStock.has(String(u.compra_id)))continue;
+      const key=nameKey(u.nombre);if(!looseByKey.has(key))looseByKey.set(key,[]);looseByKey.get(key).push(u);
+    }
+    return {byProduct,ownerByKey,looseByKey};
+  }
+  // Lo que tienes de un producto: sus unidades, las de Compras con su mismo nombre y, en el catálogo anterior, la cantidad que falta registrar.
+  function productStock(p,ix){
+    const key=nameKey(p.data.name),linked=ix.byProduct.get(String(p.id))||[],loose=ix.ownerByKey.get(key)===p?(ix.looseByKey.get(key)||[]):[];
+    const extra=p.managed?0:Math.max(0,Number(p.reference_stock||0)-linked.length-loose.length);
+    return {linked,loose,extra,total:linked.length+loose.length+extra,free:linked.filter(freeUnit).length+loose.filter(freeUnit).length+extra};
+  }
+  // Para que la venta descuente el stock: vincula las unidades de Compras con su nombre (conservan su costo)
+  // y registra como unidades sin costo la cantidad del catálogo anterior que falte.
+  async function registerStock(p,info){
+    let changed=false;
+    if(info.loose.length){await rpc("ao_suite_link_stock",{product_key:p.id,unit_keys:info.loose.map(u=>Number(u.id)),expected_stock:info.linked.length+info.loose.length});changed=true;}
+    if(info.extra>0){
+      if(info.extra>1000)throw Error(`«${p.data.name}» tiene más de 1000 unidades: actívalo en Mi web con «Modificar stock» (1000) y luego «Reponer» el resto.`);
+      const current=info.linked.length+info.loose.length;
+      await rpc("ao_suite_set_stock",{...core.legacyStockArgs(p,crypto.randomUUID(),today()),target_quantity:current+info.extra,expected_quantity:current});changed=true;
+    }
+    return changed;
+  }
+  let activatingAll=false,activationCancelled=false;
   async function activateLegacy(p){
-    const plan=activationPlan(p);
-    if(plan.kind==="review")throw Error(`tiene ${plan.loose} unidad(es) en Compras y tu web indica ${stock(p)}; vincúlalas con «Compartir stock».`);
-    if(plan.kind==="link")return rpc("ao_suite_link_stock",{product_key:p.id,unit_keys:plan.units.map(u=>Number(u.id)),expected_stock:units.filter(u=>available(u)&&String(u.product_id)===String(p.id)).length+plan.units.length});
-    return activateStock(p);
+    const info=productStock(p,stockIndex());
+    if(!await registerStock(p,info))await rpc("ao_suite_set_stock",{...core.legacyStockArgs(p,crypto.randomUUID(),today()),target_quantity:0,expected_quantity:0});
   }
   function autoStockSummary(){
-    const all=core.legacyProducts(products),activatable=core.activatableProducts(products),large=all.length-activatable.length;
-    const plans=activatable.map(p=>({p,plan:activationPlan(p)})),legacy=plans.filter(x=>x.plan.kind!=="review").map(x=>x.p),review=plans.filter(x=>x.plan.kind==="review").map(x=>x.p);
-    const linking=plans.filter(x=>x.plan.kind==="link").length,total=legacy.reduce((n,p)=>n+Number(p.reference_stock||0),0);
-    const unmatched=units.filter(u=>available(u)&&!u.product_id&&!webProductNamed(u.nombre)).length;
+    const ix=stockIndex(),all=core.legacyProducts(products),legacy=core.activatableProducts(products),large=all.length-legacy.length;
+    const linking=legacy.filter(p=>productStock(p,ix).loose.length).length,total=legacy.reduce((n,p)=>n+productStock(p,ix).total,0);
+    const unmatched=[...ix.looseByKey].filter(([key])=>!ix.ownerByKey.has(key)).reduce((n,[,list])=>n+list.length,0);
     let text=`Se activarán ${legacy.length} ${plural(legacy.length,"producto","productos")} con ${total} ${plural(total,"unidad","unidades")} en total.`;
     if(linking)text+=` ${linking} ${plural(linking,"se vinculará","se vincularán")} con unidades que ya tienes en Compras con el mismo nombre, conservando su costo.`;
-    if(review.length)text+=` ${review.length} ${plural(review.length,"producto tiene","productos tienen")} unidades en Compras con una cantidad distinta a la de tu web (${review.slice(0,3).map(p=>p.data.name).join(", ")}${review.length>3?"…":""}): vincúlalas con «Compartir stock».`;
     if(large)text+=` ${large} ${plural(large,"producto supera","productos superan")} las 1000 unidades y no se ${plural(large,"activa","activan")} aquí: usa «Modificar stock» con 1000 y luego «Reponer» el resto.`;
     if(unmatched)text+=` Además tienes ${unmatched} ${plural(unmatched,"unidad","unidades")} en Compras sin vincular con otros nombres; si alguna corresponde a estos productos, cancela y vincúlala con «Compartir stock» para conservar su costo real.`;
     return {legacy,text};
@@ -250,67 +286,58 @@
     await refresh();if(pickResolve)throw Error("Ya hay una selección de stock abierta.");
     blockedIds=new Set(($("receiptFrame").contentWindow?.getInventoryIdsExcept?.(index)||[]).map(String));
     picking=structuredClone(item.inventory||[]);$("inventorySearch").value="";$("inventoryMessage").textContent="";externalConfirmedName="";
-    for(const id of ["externalName","externalSupplier","externalCost","externalPrice"])$(id).value="";$("externalBox").open=false;
+    for(const id of ["externalName","externalPrice"])$(id).value="";$("externalBox").open=false;
     renderPicker();$("inventoryDialog").showModal();return new Promise(resolve=>{pickResolve=resolve;});
   }
-  // Compara nombres sin mayúsculas, tildes ni espacios repetidos.
-  const nameKey=value=>String(value||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLocaleLowerCase("es").replace(/\s+/g," ").trim();
-  const webProductNamed=name=>products.find(p=>nameKey(p.data.name)===nameKey(name));
-  // Unidades disponibles con el mismo nombre que un producto de la web pero sin vincular a él (por ejemplo, importadas):
-  // venderlas no descuenta su stock web hasta vincularlas.
-  const looseUnitsFor=p=>units.filter(u=>available(u)&&!u.product_id&&nameKey(u.nombre)===nameKey(p.data.name));
-  const unitFor=part=>part.source==="stock"?units.find(u=>String(u.id)===String(part.id)):null;
-  const partGone=part=>part.source==="stock"&&!(unitFor(part)&&available(unitFor(part)));
   // Unidades que aún se pueden elegir en esta venta (no vendidas, ni en otra línea de la boleta, ni ya elegidas aquí).
   const freeUnit=u=>available(u)&&!blockedIds.has(String(u.id))&&!picking.some(x=>x.source==="stock"&&String(x.id)===String(u.id));
-  // Cantidad que tienes de un producto de tu web: unidades vinculadas y las de Compras con su mismo nombre, o la cantidad del catálogo anterior.
-  function stockOf(p){
-    const loose=looseUnitsFor(p).filter(freeUnit).length,linked=units.filter(u=>freeUnit(u)&&String(u.product_id)===String(p.id)).length;
-    if(p.managed)return linked+loose;
-    return loose&&(loose===stock(p)||!stock(p))?loose:stock(p);
+  const unitFor=part=>part.source==="stock"?units.find(u=>String(u.id)===String(part.id)):null;
+  const partGone=part=>part.source==="stock"&&!(unitFor(part)&&available(unitFor(part)));
+  // Precio de venta de un producto: el de tu web o, si no tiene, el sugerido de sus unidades.
+  const productPrice=(p,info)=>Number(p.web_price)>0?Number(p.web_price):Number([...info.linked,...info.loose].find(u=>Number(u.precio_sugerido)>0)?.precio_sugerido)||0;
+  // «Mi stock»: solo lo que tienes, un renglón por producto (y por nombre para lo de Compras que no está en tu web).
+  function stockRows(term,ix){
+    const rows=searchProducts(products,term).map(p=>({p,info:productStock(p,ix)})).filter(x=>x.info.free>0)
+      .map(({p,info})=>({kind:"product",id:p.id,name:p.data.name,n:info.free,price:productPrice(p,info)}));
+    const groups=[...ix.looseByKey].filter(([key])=>!ix.ownerByKey.has(key)).map(([key,list])=>({kind:"loose",key,name:list[0].nombre.trim(),n:list.filter(freeUnit).length,price:Number(list.find(u=>Number(u.precio_sugerido)>0)?.precio_sugerido)||0})).filter(g=>g.n>0);
+    return rows.concat(searchProducts(groups,term,g=>g.name)).sort((x,y)=>x.name.localeCompare(y.name,"es"));
   }
-  // «Mi stock»: solo lo que tienes, un renglón por producto.
-  function stockRows(term){
-    const wanted=text=>nameKey(text).includes(nameKey(term)),rows=[];
-    for(const p of products){const n=stockOf(p);if(n>0&&wanted(p.data.name+" "+(p.data.brand||"")))rows.push({kind:"product",id:p.id,name:p.data.name,n,price:p.web_price});}
-    const groups=new Map();
-    for(const u of units){
-      if(!freeUnit(u)||(u.product_id&&products.some(p=>String(p.id)===String(u.product_id)))||webProductNamed(u.nombre)||!wanted(u.nombre))continue;
-      const key=nameKey(u.nombre);if(!groups.has(key))groups.set(key,{kind:"loose",key,name:u.nombre.trim(),n:0,price:Number(u.precio_sugerido)||0});groups.get(key).n++;
-    }
-    return rows.concat([...groups.values()]).sort((x,y)=>x.name.localeCompare(y.name,"es"));
+  // Productos parecidos a un nombre que sí tienes (para no venderlos como de otra tienda sin descontar su stock).
+  function similarInStock(name,ix){
+    const tokens=searchTokens(name),models=modelTokens(tokens);if(!tokens.length)return [];
+    return products.filter(p=>productStock(p,ix).total>0&&(matchesTokens(productText(p),tokens)||models.length&&matchesTokens(productText(p),models)));
   }
   function renderPicker() {
-    const term=$("inventorySearch").value.trim(),rows=stockRows(term);
-    $("inventoryUnits").innerHTML=rows.map(r=>`<div class="unit-row catalogue-row"><span><strong>${esc(r.name)}</strong><small>${r.n} en stock</small></span><strong>${Number(r.price)>0?money(r.price):""}</strong><button type="button" class="secondary" ${r.kind==="product"?`data-sell-product="${esc(r.id)}"`:`data-sell-loose="${esc(r.key)}"`} aria-label="Agregar ${esc(r.name)} a esta venta">Agregar</button></div>`).join("")||`<p class="empty">${term?`No tienes «${esc(term)}» en stock.`:"No tienes productos en stock."}</p>`;
-    renderMissing(term,rows.length>0);
+    const term=$("inventorySearch").value.trim(),ix=stockIndex(),rows=stockRows(term,ix);
+    $("inventoryUnits").innerHTML=rows.map(r=>`<div class="unit-row catalogue-row"><span><strong>${esc(r.name)}</strong><small>${r.n} en stock</small></span><strong>${r.price>0?money(r.price):""}</strong><button type="button" class="secondary" ${r.kind==="product"?`data-sell-product="${esc(r.id)}"`:`data-sell-loose="${esc(r.key)}"`} aria-label="Agregar ${esc(r.name)} a esta venta">Agregar</button></div>`).join("")||`<p class="empty">${term?`No tienes «${esc(term)}» en stock.`:"No tienes productos en stock."}</p>`;
+    renderMissing(term,ix,rows.length>0);
     $("inventorySelected").innerHTML=picking.map((p,i)=>`<div class="selected-part"><div><strong>${esc(p.name)}</strong><small>${partGone(p)?"ya no está disponible (se vendió o se retiró): quítalo":p.source==="stock"?"De tu stock":"No está en tu stock"}</small></div><label>Venta (S/)<input type="number" min="0" step="0.01" value="${esc(p.price)}" data-part-price="${i}" aria-label="Precio de venta de ${esc(p.name)}"></label><button type="button" class="quiet" data-remove-part="${i}" aria-label="Quitar ${esc(p.name)}">✕</button></div>`).join("")||'<p class="empty">Elige arriba lo que entregas al cliente.</p>';
+    if(new Set(picking.map(p=>nameKey(p.name))).size>1)$("inventorySelected").insertAdjacentHTML("beforeend",'<p class="hint">Estos productos se imprimirán juntos en una sola línea («Computadora completa: …»). Para venderlos en líneas separadas, deja aquí uno y usa «Agregar producto» en la boleta para los demás.</p>');
     updatePickerTotal();
   }
   // Al buscar algo que no tienes: productos de tu web sin stock y lo escrito, para venderlo igual (no cambia tu stock).
-  // «Sin stock» es no tener ninguna unidad: lo que ya está en esta venta o en otra línea de la boleta no cuenta como faltante.
-  const hasAnyStock=p=>units.some(u=>available(u)&&String(u.product_id)===String(p.id))||looseUnitsFor(p).length>0||(!p.managed&&stock(p)>0);
-  function renderMissing(term,inStock) {
+  function renderMissing(term,ix,inStock) {
     if(!term){$("inventoryCatalogue").innerHTML="";return;}
-    const matching=products.filter(p=>nameKey(p.data.name+" "+(p.data.brand||"")).includes(nameKey(term)));
-    const out=matching.filter(p=>!hasAnyStock(p)).slice(0,5);
-    inStock=inStock||matching.some(hasAnyStock);
+    const matching=searchProducts(products,term),out=matching.filter(p=>productStock(p,ix).total===0).slice(0,5);
     const rows=out.map(p=>`<div class="unit-row catalogue-row"><span><strong>${esc(p.data.name)}</strong><small>Sin stock · venderlo igual no cambia tu stock</small></span><strong>${Number(p.web_price)>0?money(p.web_price):""}</strong><button type="button" class="secondary" data-sell-product="${esc(p.id)}" aria-label="Vender ${esc(p.data.name)} aunque no esté en tu stock">Venderlo igual</button></div>`);
-    // Lo escrito solo se ofrece si no coincide con nada de tu stock (para no venderlo sin descontar el stock).
-    if(!inStock&&!out.some(p=>nameKey(p.data.name)===nameKey(term)))rows.push(`<div class="unit-row catalogue-row"><span><strong>«${esc(term)}»</strong><small>No está en tu stock · producto de otra tienda</small></span><button type="button" class="secondary" data-use-other aria-label="Agregar ${esc(term)} como producto de otra tienda">Venderlo igual</button></div>`);
+    // Lo escrito solo se ofrece si no se parece a ningún producto de tu web ni de tu stock.
+    if(!inStock&&!matching.length&&!similarInStock(term,ix).length)rows.push(`<div class="unit-row catalogue-row"><span><strong>«${esc(term)}»</strong><small>No está en tu stock · producto de otra tienda</small></span><button type="button" class="secondary" data-use-other aria-label="Agregar ${esc(term)} como producto de otra tienda">Venderlo igual</button></div>`);
     $("inventoryCatalogue").innerHTML=rows.length?`<h3 class="stock-title">No está en tu stock</h3><div class="unit-list">${rows.join("")}</div>`:"";
   }
   function pickedOk(text) {
     const message=$("inventoryMessage");message.classList.add("success");message.textContent=text;
-    $("inventorySelected").scrollIntoView({block:"nearest"});$("inventoryConfirm").focus({preventScroll:true});
+    // En computadora se puede seguir buscando; en el celular no se abre el teclado.
+    if(matchMedia("(pointer:fine)").matches){$("inventorySearch").focus({preventScroll:true});$("inventorySearch").select();}
   }
-  const remainingText=p=>{const n=stockOf(p);return n?`te quedarán ${n}`:"te quedará 0 (pasa a «Para reponer»)";};
+  const remainingText=n=>n?`te ${plural(n,"quedará","quedarán")} ${n}`:"te quedará 0 (pasa a «Para reponer»)";
   function openExternal(name,message) {
-    $("externalBox").open=true;$("externalName").value=name.slice(0,350);$("externalPrice").value="";$("externalSupplier").value="";$("externalCost").value="";
+    $("externalBox").open=true;$("externalName").value=name.slice(0,350);$("externalPrice").value="";
     $("inventoryMessage").classList.remove("success");$("inventoryMessage").textContent=message;
     $("externalPrice").scrollIntoView({block:"center"});$("externalPrice").focus();
   }
-  // «Agregar» en un producto de tu web: decide con los datos actuales para que la venta descuente su stock al emitir.
+  const noStockPart=(name,price)=>({source:"external",name:name.slice(0,350),supplier:NO_STOCK_SUPPLIER,cost:"0.00",price:Number(price).toFixed(2)});
+  // «Agregar» en un producto de tu web: con los datos actuales se registra su stock si hace falta y se elige una unidad,
+  // para que al emitir la boleta su stock baje y al eliminarla vuelva.
   let activatingProduct=false;
   async function sellCatalogueProduct(button,productId) {
     if(activatingProduct){report("inventoryMessage",Error("Hay otro producto agregándose. Espera un momento."));return;}
@@ -321,42 +348,35 @@
       if(client!==db)return;
       let p=products.find(x=>String(x.id)===String(productId));
       if(!p)throw Error("El producto ya no existe.");
-      const name=p.data.name,loose=looseUnitsFor(p),linked=units.filter(u=>available(u)&&String(u.product_id)===String(p.id)).length;
-      if(loose.length){
-        // Unidades de Compras con el mismo nombre sin vincular: se vinculan al producto y conservan su costo.
-        if(!p.managed&&stock(p)>0&&loose.length!==stock(p))throw Error(`Tienes ${loose.length} unidad(es) de «${name}» en Compras y tu web indica ${stock(p)}. Revisa la cantidad en Mi web con «Compartir stock» y vuelve a agregarlo.`);
-        await rpc("ao_suite_link_stock",{product_key:p.id,unit_keys:loose.map(u=>Number(u.id)),expected_stock:linked+loose.length});
-      }else if(!p.managed&&stock(p)>0){
-        // Catálogo anterior: su cantidad se registra como unidades para que la venta la descuente.
-        if(stock(p)>1000)throw Error(`«${name}» tiene más de 1000 unidades: actívalo en Mi web con «Modificar stock» (1000) y luego «Reponer» el resto.`);
-        await activateStock(p);
-      }else if(!linked){
+      const name=p.data.name,info=productStock(p,stockIndex());
+      if(!info.total){
         // Sin stock: se vende igual, sin cambiar ningún stock.
         if(pickResolve!==mine)return;
-        if(Number(p.web_price)>0){
-          picking.push({source:"external",name:name.slice(0,350),supplier:"",cost:"0.00",price:Number(p.web_price).toFixed(2)});
-          renderPicker();pickedOk(`«${name}» no está en tu stock: se agregó a esta venta a ${money(p.web_price)} (no cambia tu stock).`);
-        }else openExternal(name,`«${name}» no tiene precio en tu web: escribe el precio de venta y pulsa «Agregar a esta venta».`);
+        if(Number(p.web_price)>0){picking.push(noStockPart(name,p.web_price));renderPicker();pickedOk(`«${name}» no está en tu stock: se agregó a ${money(p.web_price)} (no cambia tu stock).`);}
+        else openExternal(name,`«${name}» no tiene precio en tu web: escribe el precio de venta y pulsa «Agregar a esta venta».`);
         return;
       }
-      if(loose.length||!p.managed){await refreshAfterMutation();$("accountingFrame").contentWindow?.refreshFromSuite?.();}
+      if(await registerStock(p,info)){await refreshAfterMutation();$("accountingFrame").contentWindow?.refreshFromSuite?.();}
       if(client!==db)return;
       p=products.find(x=>String(x.id)===String(productId))||p;
       if(pickResolve!==mine){toast(`«${name}» quedó listo en tu stock; vuelve a agregarlo a la venta.`);return;}
-      const unit=units.find(u=>freeUnit(u)&&String(u.product_id)===String(p.id));
+      const now=productStock(p,stockIndex()),unit=now.linked.find(freeUnit);
       if(!unit)throw Error(`«${name}» ya no tiene unidades libres para esta venta (puede que se haya vendido en otro dispositivo o ya esté en otra línea).`);
-      picking.push({source:"stock",id:unit.id,name:unit.nombre,serial:unit.serial||"",price:Number(unit.precio_sugerido??p.web_price??0).toFixed(2)});
-      renderPicker();pickedOk(`«${name}» agregado. Al emitir la boleta se descuenta de tu stock: ${remainingText(p)}.`);
+      picking.push({source:"stock",id:unit.id,name:name.slice(0,350),serial:unit.serial||"",price:productPrice(p,now).toFixed(2)});
+      renderPicker();pickedOk(`«${name}» agregado. Al emitir la boleta se descuenta de tu stock: ${remainingText(productStock(p,stockIndex()).free)}.`);
     }catch(error){report("inventoryMessage",error);}
     finally{if(client===db){activatingProduct=false;button.disabled=false;}}
   }
-  // Unidades de Compras que no son de un producto de tu web: se elige una del grupo.
+  // Unidades de Compras que no son de ningún producto de tu web: se elige una del grupo.
   function sellLoose(key) {
-    const unit=units.find(u=>freeUnit(u)&&nameKey(u.nombre)===key&&!webProductNamed(u.nombre));
+    const ix=stockIndex(),list=ix.ownerByKey.has(key)?[]:(ix.looseByKey.get(key)||[]),unit=list.find(freeUnit);
     if(!unit){report("inventoryMessage",Error("Ya no hay unidades libres de ese producto."));return;}
-    picking.push({source:"stock",id:unit.id,name:unit.nombre,serial:unit.serial||"",price:Number(unit.precio_sugerido||0).toFixed(2)});
-    const left=units.filter(u=>freeUnit(u)&&nameKey(u.nombre)===key).length;
-    renderPicker();pickedOk(`«${unit.nombre}» agregado. Al emitir la boleta se descuenta de tu stock: te quedarán ${left}.${Number(unit.precio_sugerido)?"":" Escribe su precio de venta abajo."}`);
+    const price=Number(list.find(u=>Number(u.precio_sugerido)>0)?.precio_sugerido)||0;
+    picking.push({source:"stock",id:unit.id,name:list[0].nombre.trim().slice(0,350),serial:unit.serial||"",price:price.toFixed(2)});
+    renderPicker();
+    const left=list.filter(freeUnit).length;
+    pickedOk(`«${list[0].nombre.trim()}» agregado. Al emitir la boleta se descuenta de tu stock: ${remainingText(left)}.${price?"":" Escribe su precio en «Venta (S/)»."}`);
+    if(!price)document.querySelector(`[data-part-price="${picking.length-1}"]`)?.focus();
   }
   for(const id of ["inventoryUnits","inventoryCatalogue"])$(id).addEventListener("click",e=>{
     const product=e.target.closest("[data-sell-product]");if(product){sellCatalogueProduct(product,product.dataset.sellProduct);return;}
@@ -364,31 +384,34 @@
     if(e.target.closest("[data-use-other]")){const name=$("inventorySearch").value.trim();openExternal(name,`«${name}» está listo abajo: escribe el precio de venta y pulsa «Agregar a esta venta».`);}
   });
   function updatePickerTotal() {let n=0,valid=true;for(const p of picking){try{n+=core.cents(p.price);}catch{valid=false;}}$("inventoryTotal").textContent=valid?money(n/100):"Revisa los precios";}
-  $("inventorySearch").addEventListener("input",()=>renderPicker());
+  let searchTimer;
+  $("inventorySearch").addEventListener("input",()=>{clearTimeout(searchTimer);searchTimer=setTimeout(renderPicker,120);});
   $("inventorySelected").addEventListener("input",e=>{if(e.target.dataset.partPrice===undefined)return;picking[Number(e.target.dataset.partPrice)].price=e.target.value;updatePickerTotal();});
   $("inventorySelected").addEventListener("click",e=>{const b=e.target.closest("[data-remove-part]");if(!b)return;picking.splice(Number(b.dataset.removePart),1);renderPicker();});
-  // Un producto de la web escrito a mano se vendería como compra de otra tienda y su stock no bajaría: se avisa una vez.
+  // Un producto que tienes, escrito a mano, se vendería como de otra tienda y su stock no bajaría: se avisa una vez.
   let externalConfirmedName="";
   function addExternalPart() {
     try{
       const name=$("externalName").value.trim();
       if(!name)throw Error("Indica el nombre del producto.");if(!$("externalPrice").value.trim())throw Error("Indica el precio al que lo vendes.");
-      const p={source:"external",name,supplier:$("externalSupplier").value.trim(),cost:(core.optionalCents($("externalCost").value)/100).toFixed(2),price:(core.cents($("externalPrice").value)/100).toFixed(2)};core.validateParts([p]);
-      const web=webProductNamed(name);
-      if(web&&stockOf(web)>0&&externalConfirmedName!==nameKey(name)){
-        externalConfirmedName=nameKey(name);$("inventorySearch").value=web.data.name;renderPicker();
-        throw Error(`Tienes ${stockOf(web)} de «${web.data.name}» en tu stock. Para que la venta lo descuente, pulsa su botón «Agregar» en «Mi stock» (arriba). Si de verdad es de otra tienda, pulsa «Agregar a esta venta» otra vez.`);
+      const part=noStockPart(name,core.cents($("externalPrice").value)/100);core.validateParts([part]);
+      const similar=similarInStock(name,stockIndex());
+      if(similar.length&&externalConfirmedName!==nameKey(name)){
+        externalConfirmedName=nameKey(name);$("inventorySearch").value=name;renderPicker();
+        throw Error(`Tienes «${similar[0].data.name}» en tu stock. Si es ese, pulsa su «Agregar» en «Mi stock» (arriba) para que la venta lo descuente. Si de verdad es de otra tienda, pulsa «Agregar a esta venta» otra vez.`);
       }
-      externalConfirmedName="";picking.push(p);for(const id of ["externalName","externalSupplier","externalCost","externalPrice"])$(id).value="";$("inventoryMessage").textContent="";renderPicker();return true;
-    }catch(error){report("inventoryMessage",error);return false;}
+      externalConfirmedName="";picking.push(part);for(const id of ["externalName","externalPrice"])$(id).value="";$("inventoryMessage").textContent="";renderPicker();return true;
+    }catch(error){report("inventoryMessage",error);$("externalBox").open=true;return false;}
   }
   $("addExternal").addEventListener("click",addExternalPart);
-  for(const id of ["externalName","externalSupplier","externalCost","externalPrice"])$(id).addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();addExternalPart();}});
+  for(const id of ["externalName","externalPrice"])$(id).addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();addExternalPart();}});
   $("inventoryConfirm").addEventListener("click",()=>{
-    // Si dejaste escrito un producto de otra tienda sin pulsar «Agregar a esta venta», se agrega ahora.
-    if(["externalName","externalPrice"].some(id=>$(id).value.trim())&&!addExternalPart())return;
-    const gone=picking.filter(partGone);
-    if(gone.length){report("inventoryMessage",Error(`«${gone[0].name}» ya no está disponible (se vendió o se retiró). Quítala de la lista y elige otra unidad.`));return;}
+    // Si dejaste escrito un producto de otra tienda (con el apartado abierto) sin pulsar «Agregar a esta venta», se agrega ahora.
+    if($("externalBox").open&&["externalName","externalPrice"].some(id=>$(id).value.trim())&&!addExternalPart())return;
+    const gone=picking.find(partGone);
+    if(gone){report("inventoryMessage",Error(`«${gone.name}» ya no está disponible (se vendió o se retiró). Quítalo de la lista y elige otro.`));return;}
+    const free=picking.findIndex(p=>{try{return core.cents(p.price)===0;}catch{return false;}});
+    if(free>=0){report("inventoryMessage",Error(`«${picking[free].name}» no tiene precio de venta: escríbelo en «Venta (S/)».`));document.querySelector(`[data-part-price="${free}"]`)?.focus();return;}
     try{core.validateParts(picking);if(picking.length>500)throw Error("Selecciona hasta 500 componentes.");const selected=structuredClone(picking).map(p=>p.source==="external"?{...p,cost:(core.optionalCents(p.cost)/100).toFixed(2)}:p),resolve=pickResolve;pickResolve=null;$("inventoryDialog").close();resolve(selected);}catch(error){report("inventoryMessage",error);}
   });
   $("inventoryDialog").addEventListener("close",()=>{if(pickResolve){const resolve=pickResolve;pickResolve=null;resolve(null);}});
