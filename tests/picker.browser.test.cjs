@@ -135,6 +135,11 @@ test('Otra tienda: solo nombre y precio; coma decimal; Enter; costo inválido se
   assert.equal((await s.page.evaluate(()=>window.__pick)).length,2,'confirmar con el formulario lleno lo agrega');
 });
 
+test('Confirmar sin elegir nada explica qué hacer',{skip},async()=>{
+  const s=await open({products:[]});await s.pick();await s.page.click('#inventoryConfirm');
+  assert.match(await s.message(),/Elige al menos un producto de «Mi stock»/);assert.doesNotMatch(await s.message(),/unidad/);
+});
+
 test('Una unidad que ya no está disponible no se puede usar en la venta',{skip},async()=>{
   const s=await open({products:[product(1,'SSD',0,true,300)],purchases:[{id:7,nombre:'SSD',costo:200,moneda:'PEN',tipo_cambio:0}],units:[{id:70,compra_id:7,product_id:1,nombre:'SSD',costo:null,precio_venta:null,in_stock:true}]});
   await s.page.evaluate(()=>{window.__pick=window.AOSuite.pickInventory({inventory:[{source:'stock',id:70,name:'SSD',price:'300.00'}]},0);});

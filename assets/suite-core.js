@@ -14,7 +14,7 @@
     return units.map(u=>({...u,calculatedCost:Math.round(((u.costo!==null&&u.costo!==undefined?Number(u.costo):(missing?remaining/missing:0))+Number.EPSILON)*100)/100,estimated:u.costo===null||u.costo===undefined}));
   };
   const validateParts=parts=>{
-    if(!Array.isArray(parts)||!parts.length)throw Error('Selecciona al menos una unidad.');
+    if(!Array.isArray(parts)||!parts.length)throw Error('Elige al menos un producto de «Mi stock» o agrega uno que no esté en tu stock.');
     const ids=new Set();let total=0;
     for(const p of parts){total+=cents(p.price);if(p.source==='stock'){const id=String(p.id);if(!/^\d+$/.test(id)||ids.has(id))throw Error('Una unidad de stock está repetida o es inválida.');ids.add(id);}else if(p.source==='external'){optionalCents(p.cost);if(!String(p.name||'').trim())throw Error('Indica el nombre del producto comprado.');}else throw Error('Origen de producto inválido.');}
     return total;
