@@ -48,7 +48,7 @@
   }
   function logout() {
     ++generation;db=null;member=null;loading=null;activatingAll=false;activatingProduct=false;products=[];purchases=[];units=[];clients=[];sales=[];receipts=[];
-    for(const id of ["productDialog","linkDialog","inventoryDialog","stockDialog","autoStockDialog"])if($(id).open)$(id).close();
+    for(const id of ["productDialog","linkDialog","inventoryDialog","stockDialog","autoStockDialog"])if($(id).open)$(id).close();resetClientDeletion();
     $("catalogGrid").replaceChildren();$("clientList").replaceChildren();$("oldPassword").value="";
   }
   function navigate(name) {
@@ -260,11 +260,53 @@
     const filtered=clients.filter(c=>(c.name+" "+c.document).toLocaleLowerCase("es").includes(term));
     $("clientList").innerHTML=filtered.map(c=>{
       const list=sales.filter(s=>s.client_id===c.id).map(s=>receipts.find(r=>r.id===s.receipt_id)).filter(Boolean);
-      return `<article class="card"><h2>${esc(c.name)}</h2><p class="muted">${esc(c.document?c.doc_type+" "+c.document:"Sin documento")}${c.email?" · "+esc(c.email):""}</p>${list.map(r=>`<div class="client-sale"><div><strong>${esc(r.series+"-"+r.number)}</strong><small>${esc(r.date)} · ${esc((r.payload.items||[]).map(i=>i.description).join(", "))}</small></div><strong>${money(r.total_cents/100)}</strong><button class="quiet" data-client-receipt="${r.id}">Ver boleta</button></div>`).join("")}</article>`;
+      return `<article class="card"><div class="client-head"><h2>${esc(c.name)}</h2><button type="button" class="quiet" data-delete-client="${esc(c.id)}" aria-label="Eliminar cliente ${esc(c.name)}">Eliminar</button></div><p class="muted">${esc(c.document?c.doc_type+" "+c.document:"Sin documento")}${c.email?" · "+esc(c.email):""}</p>${list.map(r=>`<div class="client-sale"><div><strong>${esc(r.series+"-"+r.number)}</strong><small>${esc(r.date)} · ${esc((r.payload.items||[]).map(i=>i.description).join(", "))}</small></div><strong>${money(r.total_cents/100)}</strong><button class="quiet" data-client-receipt="${r.id}">Ver boleta</button></div>`).join("")}</article>`;
     }).join("")||'<p class="empty">Los clientes aparecerán aquí cuando confirmes una boleta. Los compradores de ventas anteriores se consultan en el historial del inventario.</p>';
   }
   $("clientSearch").addEventListener("input",renderClients);
-  $("clientList").addEventListener("click",e=>{const b=e.target.closest("[data-client-receipt]");if(!b)return;const r=receipts.find(r=>r.id===b.dataset.clientReceipt);document.querySelector('[data-view="editor"]').click();const renderer=$("receiptFrame").contentWindow;if(renderer?.loadCloudReceipt)renderer.loadCloudReceipt(r.payload,r.id);else toast("La boleta se está cargando. Inténtalo en un momento.");});
+  // Eliminar un cliente: solo si no tiene boletas emitidas, porque sus boletas son el historial de la venta.
+  let deletingClient=null,clientDeleteBusy=false;
+  function resetClientDeletion(){
+    deletingClient=null;clientDeleteBusy=false;
+    for(const id of ["deleteClientConfirm","deleteClientCancel","deleteClientClose"])$(id).disabled=false;
+    $("deleteClientConfirm").textContent="Sí, eliminar cliente";$("deleteClientMessage").textContent="";
+    if($("deleteClientDialog").open)$("deleteClientDialog").close();
+  }
+  function openClientDeletion(client){
+    if(!client||clientDeleteBusy)return;
+    const issued=sales.filter(s=>s.client_id===client.id),numbers=issued.map(s=>receipts.find(r=>r.id===s.receipt_id)).filter(Boolean).map(r=>r.series+"-"+r.number);
+    deletingClient={id:client.id,name:client.name,generation};
+    $("deleteClientSummary").textContent=client.name+" · "+(client.document?client.doc_type+" "+client.document:"Sin documento");
+    $("deleteClientDetails").textContent=issued.length
+      ?`Este cliente tiene ${issued.length} ${plural(issued.length,"boleta emitida","boletas emitidas")}${numbers.length?" ("+numbers.slice(0,5).join(", ")+(numbers.length>5?"…":"")+")":""}. Sus boletas son el historial de la venta, por eso no se puede eliminar. Si alguna fue un error, elimínala primero en «Boletas emitidas».`
+      :"Se quitará de tu lista de clientes. No afecta tus boletas, ventas ni stock. Si vuelve a comprar, se registrará de nuevo con su boleta.";
+    $("deleteClientConfirm").hidden=issued.length>0;$("deleteClientMessage").textContent="";
+    $("deleteClientDialog").showModal();$("deleteClientCancel").focus();
+  }
+  $("deleteClientForm").addEventListener("submit",async e=>{
+    e.preventDefault();if(!db||!deletingClient||clientDeleteBusy)return;
+    const target=deletingClient,current=()=>deletingClient===target&&generation===target.generation;
+    clientDeleteBusy=true;for(const id of ["deleteClientConfirm","deleteClientCancel","deleteClientClose"])$(id).disabled=true;
+    $("deleteClientConfirm").textContent="Eliminando…";$("deleteClientMessage").textContent="Eliminando el cliente…";
+    try{
+      const result=await rpc("ao_suite_delete_client",{client_key:target.id});
+      if(!current())return;
+      if(!result?.deleted)throw Error("El servidor no confirmó la eliminación. Inténtalo de nuevo.");
+      let refreshed=true;try{await refreshAfterMutation();}catch{refreshed=false;}
+      if(!current())return;
+      resetClientDeletion();toast(`Cliente «${target.name}» eliminado.`+(refreshed?"":" Pulsa Actualizar para recargar la lista."));
+    }catch(error){
+      if(!current())return;
+      // La función se agrega con database/delete_clients.sql; sin ella, la base de datos no la encuentra.
+      const missing=error?.code==="PGRST202"||/could not find the function|ao_suite_delete_client/i.test(error?.message||"");
+      $("deleteClientMessage").textContent=missing?"Falta activar la eliminación de clientes en tu base de datos: ejecuta una vez database/delete_clients.sql en el editor SQL de Supabase.":(error?.message||String(error));
+    }finally{
+      if(current()){clientDeleteBusy=false;for(const id of ["deleteClientConfirm","deleteClientCancel","deleteClientClose"])$(id).disabled=false;$("deleteClientConfirm").textContent="Sí, eliminar cliente";}
+    }
+  });
+  for(const id of ["deleteClientCancel","deleteClientClose"])$(id).addEventListener("click",()=>{if(!clientDeleteBusy)resetClientDeletion();});
+  $("deleteClientDialog").addEventListener("cancel",e=>{e.preventDefault();if(!clientDeleteBusy)resetClientDeletion();});
+  $("clientList").addEventListener("click",e=>{const del=e.target.closest("[data-delete-client]");if(del){openClientDeletion(clients.find(c=>String(c.id)===del.dataset.deleteClient));return;}const b=e.target.closest("[data-client-receipt]");if(!b)return;const r=receipts.find(r=>r.id===b.dataset.clientReceipt);document.querySelector('[data-view="editor"]').click();const renderer=$("receiptFrame").contentWindow;if(renderer?.loadCloudReceipt)renderer.loadCloudReceipt(r.payload,r.id);else toast("La boleta se está cargando. Inténtalo en un momento.");});
   function renderImportStatus() {
     $("importStatus").textContent=importState.imported?"Tus compras anteriores ya fueron importadas. Volver a importar incorpora solo registros nuevos del contabilizador anterior.":"Las compras anteriores aún no se han importado. Puedes registrar nuevas compras ahora o traer tu inventario con el siguiente formulario.";
   }

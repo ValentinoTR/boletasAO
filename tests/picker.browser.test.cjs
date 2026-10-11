@@ -209,9 +209,10 @@ test('Una unidad que ya no está disponible no se puede usar en la venta',{skip}
 });
 
 test('Mientras se agrega un producto, otro «Agregar» espera su turno',{skip},async()=>{
-  const s=await open({products:[product(1,'RYZEN 5 5500',1),product(2,'RYZEN 7 7700X',1)],latency:300});
+  const s=await open({products:[product(1,'RYZEN 5 5500',1),product(2,'RYZEN 7 7700X',1)],latency:1500});
   await s.pick();
-  await s.page.click('[data-sell-product="1"]');await s.page.click('[data-sell-product="2"]');
+  // Los dos clics en el mismo instante, sin depender de la velocidad de la máquina.
+  await s.page.evaluate(()=>{document.querySelector('[data-sell-product="1"]').click();document.querySelector('[data-sell-product="2"]').click();});
   assert.match(await s.message(),/Hay otro producto agregándose/);
   await s.added(1);
   assert.equal(await s.page.evaluate(()=>window.__rpc.length),1);
@@ -233,10 +234,12 @@ test('Cancelar detiene la activación masiva del catálogo anterior',{skip},asyn
   await s.page.evaluate(()=>{document.getElementById('catalogView').hidden=false;});
   await s.page.click('#activateAutoStock');await s.page.click('#autoStockConfirm');
   await s.page.waitForFunction(()=>window.__rpc.length===1);
-  await s.page.click('#autoStockDialog .secondary');await new Promise(r=>setTimeout(r,800));
+  await s.page.click('#autoStockDialog .secondary');
+  const atCancel=await s.page.evaluate(()=>window.__rpc.length);
+  // Espera el resultado real en lugar de un tiempo fijo.
+  await s.page.waitForFunction(()=>/Activación detenida/.test(document.getElementById('suiteToast').textContent),null,{timeout:15000});
   const sent=await s.page.evaluate(()=>window.__rpc.length);
-  assert.ok(sent<=2,'se detiene tras el producto en curso ('+sent+' de 5)');
-  assert.match(await s.page.textContent('#suiteToast'),/Activación detenida/);
+  assert.ok(sent<=atCancel+1&&sent<5,'se detiene tras el producto en curso ('+sent+' de 5)');
 });
 
 test('Tras emitir se abre la boleta siguiente sin esperar a la base y un error del servidor queda a la vista',{skip},async()=>{

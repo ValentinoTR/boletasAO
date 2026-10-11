@@ -38,3 +38,9 @@ tienda y del contabilizador, los cambios de base de datos y las pruebas.
 Los cambios SQL ya están aplicados al proyecto actual; no ejecutes de nuevo
 el esquema inicial ni las actualizaciones de eliminación y stock sobre esa base.
 Consulta README.md para importar las compras anteriores y vincular el stock.
+
+ELIMINAR UN CLIENTE
+En Clientes, pulsa Eliminar en la tarjeta del cliente y confirma. Solo se puede
+con clientes sin boletas emitidas (si tiene boletas, primero eliminalas en Boletas
+emitidas). PASO UNICO: antes de usarlo, abre Supabase -> SQL Editor, pega el
+contenido de database/delete_clients.sql y pulsa Run.
