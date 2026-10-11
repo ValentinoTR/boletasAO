@@ -14,9 +14,9 @@
     return units.map(u=>({...u,calculatedCost:Math.round(((u.costo!==null&&u.costo!==undefined?Number(u.costo):(missing?remaining/missing:0))+Number.EPSILON)*100)/100,estimated:u.costo===null||u.costo===undefined}));
   };
   const validateParts=parts=>{
-    if(!Array.isArray(parts)||!parts.length)throw Error('Selecciona al menos una unidad.');
+    if(!Array.isArray(parts)||!parts.length)throw Error('Elige al menos un producto de «Mi stock» o agrega uno que no esté en tu stock.');
     const ids=new Set();let total=0;
-    for(const p of parts){total+=cents(p.price);if(p.source==='stock'){const id=String(p.id);if(!/^\d+$/.test(id)||ids.has(id))throw Error('Una unidad de stock está repetida o es inválida.');ids.add(id);}else if(p.source==='external'){cents(p.cost);if(!String(p.name||'').trim())throw Error('Indica el nombre del producto comprado.');}else throw Error('Origen de producto inválido.');}
+    for(const p of parts){total+=cents(p.price);if(p.source==='stock'){const id=String(p.id);if(!/^\d+$/.test(id)||ids.has(id))throw Error('Una unidad de stock está repetida o es inválida.');ids.add(id);}else if(p.source==='external'){optionalCents(p.cost);if(!String(p.name||'').trim())throw Error('Indica el nombre del producto comprado.');}else throw Error('Origen de producto inválido.');}
     return total;
   };
   const repriceParts=(parts,totalCents)=>{
@@ -34,7 +34,13 @@
   const quantity=value=>{const text=String(value).trim();if(!/^\d{1,6}$/.test(text)||Number(text)>100000)throw Error('Ingresa una cantidad entera válida.');return Number(text);};
   const productStock=(product,units)=>product.managed?units.filter(u=>available(u)&&String(u.product_id)===String(product.id)).length:Number(product.reference_stock||0);
   const filterStock=(products,units,mode)=>products.filter(p=>mode==='replenish'?productStock(p,units)===0:productStock(p,units)>0);
-  const api={cents,optionalCents,realCost,allocate,validateParts,repriceParts,available,quantity,productStock,filterStock};
+  // Productos del catálogo anterior: su cantidad es un número sin unidades reales, así que las ventas no pueden descontarla.
+  const legacyProducts=products=>products.filter(p=>!p.managed&&Number(p.reference_stock||0)>0);
+  // La función de stock registra hasta 1000 unidades por compra.
+  const activatableProducts=products=>legacyProducts(products).filter(p=>Number(p.reference_stock)<=1000);
+  // Registra esa cantidad como unidades reales sin costo; desde entonces cada venta descuenta una unidad.
+  const legacyStockArgs=(product,requestKey,date)=>({request_key:requestKey,product_key:product.id,product_name:product.data.name,target_quantity:Number(product.reference_stock||0),expected_quantity:0,cost_per_unit:0,supplier:'Stock inicial (catálogo anterior)',purchased_on:date});
+  const api={cents,optionalCents,legacyProducts,activatableProducts,legacyStockArgs,realCost,allocate,validateParts,repriceParts,available,quantity,productStock,filterStock};
   if(typeof window!=='undefined')window.AOSuiteCore=api;
   if(typeof module!=='undefined')module.exports=api;
 })();

@@ -46,3 +46,18 @@ test('El costo incluye cambio de moneda, impuesto y transporte', () => {
   assert.deepEqual(allocated.map(p=>p.calculatedCost),[163,150,150]);
   assert.deepEqual(allocated.map(p=>p.estimated),[false,true,true]);
 });
+test('Una compra externa puede venderse sin indicar su costo',()=>{
+  assert.equal(core.validateParts([{source:'external',name:'Ryzen 7 9800X3D',cost:'',price:'1800.00'}]),180000);
+  assert.equal(core.validateParts([{source:'external',name:'Ryzen 7 9800X3D',cost:'0.00',price:'1800.00'}]),180000);
+  assert.throws(()=>core.validateParts([{source:'external',name:'Ryzen 7 9800X3D',cost:'abc',price:'1800.00'}]));
+  assert.throws(()=>core.validateParts([{source:'external',name:'Ryzen 7 9800X3D',cost:'',price:''}]));
+});
+test('Los productos del catálogo anterior se activan como unidades reales sin costo',()=>{
+  const products=[{id:1,managed:false,reference_stock:2,data:{name:'Ryzen 7 7700X'}},{id:2,managed:true,reference_stock:0,data:{name:'SSD'}},{id:3,managed:false,reference_stock:0,data:{name:'Ryzen 5 5600'}}];
+  // Solo cuentan los productos con cantidad: los de cantidad 0 siguen como «Para reponer» sin necesitar activación.
+  assert.deepEqual(core.legacyProducts(products).map(p=>p.id),[1]);
+  assert.deepEqual(core.legacyStockArgs(products[0],'key','2026-10-11'),{request_key:'key',product_key:1,product_name:'Ryzen 7 7700X',target_quantity:2,expected_quantity:0,cost_per_unit:0,supplier:'Stock inicial (catálogo anterior)',purchased_on:'2026-10-11'});
+  // La función de stock registra hasta 1000 unidades por compra: los productos mayores no se activan en bloque.
+  const big=[{id:7,managed:false,reference_stock:1000,data:{name:'A'}},{id:8,managed:false,reference_stock:1001,data:{name:'B'}}];
+  assert.deepEqual(core.legacyProducts(big).map(p=>p.id),[7,8]);assert.deepEqual(core.activatableProducts(big).map(p=>p.id),[7]);
+});
