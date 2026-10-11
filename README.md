@@ -7,20 +7,22 @@ Compras, inventario, ventas, boletas, clientes y productos de la tienda pública
 1. Ingresar con la cuenta de Boletas AO.
 2. En **Conexión inicial**, importar las compras del contabilizador anterior con su correo y contraseña. La sesión de importación es temporal y la contraseña no se almacena. La importación repetida solo incorpora registros nuevos.
 3. En **Mi web → Compartir stock**, relacionar cada producto publicado con sus unidades reales de inventario. Revisar la cantidad antes de confirmar. El precio publicado se guarda por separado.
-4. Al crear una boleta, seleccionar las unidades disponibles o registrar los productos comprados a otra tienda para esa venta. El buscador también muestra los productos de Mi web que todavía no tienen unidades registradas (catálogo anterior o Para reponer) y permite agregar cualquier producto de otra tienda; en esos casos se indica su costo real. El conjunto de una PC puede imprimirse como una sola computadora.
+4. Al crear una boleta, seleccionar las unidades disponibles o registrar los productos comprados a otra tienda para esa venta. El buscador también muestra los productos de Mi web que todavía no tienen unidades registradas (catálogo anterior o Para reponer) y permite agregar cualquier producto de otra tienda con solo su nombre y precio de venta; el costo real es opcional. Sin costo, la ganancia de esa venta cuenta el precio completo y el costo no puede corregirse después de emitir la boleta (habría que eliminarla y emitir otra). El conjunto de una PC puede imprimirse como una sola computadora.
 5. Escribir el precio final de la boleta. Si cambia respecto de los precios de sus componentes, se distribuye entre ellos conservando cada céntimo. Los costos quedan guardados para calcular la ganancia.
 6. Al emitir, la boleta, el comprador y la venta se guardan juntos. Las unidades dejan de estar disponibles. Descargar o reenviar una boleta emitida conserva el mismo registro. Al emitir (con o sin envío por correo) se abre sola una boleta nueva con el número siguiente, por ejemplo de B001-110 a B001-111; si el correo falla, la pantalla conserva la boleta emitida hasta reintentar el envío. Las boletas anteriores se consultan en **Boletas emitidas**.
 7. Para corregir una boleta equivocada, abrir **Boletas emitidas → Eliminar** y pulsar **Sí, eliminar boleta** en la ventana de la página. Esa ventana muestra el progreso o cualquier error y permite reintentar. Desaparece del historial y de las ventas; sus unidades vuelven al inventario y se recalcula la ganancia. Las compras externas se conservan como compras reales, con sus unidades disponibles para otra venta. Después se puede emitir la boleta correcta. El número eliminado queda reservado; los correos ya enviados y los PDF descargados no se retiran.
-8. **Mi web** e **Inventario** abren en **En stock**. Los productos agotados se conservan en **Para reponer**. **Modificar stock** corrige la cantidad disponible; una reducción retira unidades sin borrar la compra ni cambiar costos o ganancias anteriores. **Reponer** registra una nueva compra con cantidad, proveedor y fecha; el costo por unidad es opcional (vacío se guarda como S/ 0.00 y puede completarse después en Compras mientras la unidad no se haya vendido).
+8. **Mi web** e **Inventario** abren en **En stock**. Los productos agotados se conservan en **Para reponer**. **Modificar stock** corrige la cantidad disponible; una reducción retira unidades sin borrar la compra ni cambiar costos o ganancias anteriores. **Reponer** registra una nueva compra con cantidad, proveedor y fecha; el costo por unidad es opcional (vacío se guarda como S/ 0.00 y puede completarse después en Compras mientras la unidad no se haya vendido; el costo total de una compra queda fijo apenas se vende una de sus unidades, pero el costo de cada unidad sin vender sí se puede ajustar).
 9. **Agregar producto** pregunta cuántas unidades ingresan y, opcionalmente, su costo. Con cantidad 0, guarda la ficha y la foto para una reposición futura. Al registrar una compra también se pide cantidad y se puede asociar al producto de la web. El costo de esa compra es el total, con su cambio, impuestos y envío; para combos de piezas distintas se indica 0 y se agregan los componentes con sus cantidades.
 10. El botón **Modo claro / Modo oscuro** aplica la elección al panel, formularios, boletas, tablas y ventanas. Se recuerda al volver a entrar. La tienda pública tiene su propio botón y recibe el tema elegido al abrirla desde el panel. El PDF conserva su formato original para impresión.
+
+Descuento automático del stock web: el stock de un producto vinculado a unidades reales baja solo cuando una de ellas se vende, ya sea en una boleta o en **Compras**, y vuelve si se elimina la boleta. Los productos del catálogo anterior solo tienen una cantidad, por eso **Mi web → Activar descuento automático** registra esas cantidades como unidades sin costo (S/ 0.00, completables después en Compras) y desde entonces sus ventas descuentan stock. También se activa producto por producto al agregarlo a una boleta desde el buscador. Si ya registraste esas compras con su costo real, usa **Compartir stock** en cada producto en lugar del botón.
 
 El catálogo existente mantiene sus cantidades anteriores hasta que se vinculan unidades. Las compras privadas del proyecto anterior requieren la cuenta de ese contabilizador para importarse.
 
 ## Código
 
-- `build_suite.py`: adapta las aplicaciones conservadas en `original/` y genera el panel en `dist/`.
-- `build_stock.py`: incorpora cantidades, reposición y controles de tema al generar el panel.
+- `dist/` se edita a mano. Después de cada cambio ejecutar `python publish.py`: actualiza los `?v=` de caché de los HTML y copia `dist/` a la raíz, que es lo que sirve GitHub Pages. `tests/check_assets.py` falla si la raíz o los `?v=` quedaron desactualizados.
+- `build_suite.py` y `build_stock.py`: generadores originales del panel (a partir de `original/`). Ya no reproducen la versión actual y requieren `.openai/hosting.json`; no los ejecutes sobre `dist/` porque sobrescribirían estos cambios.
 - `dist/assets/suite.js`: catálogo, clientes, selección de componentes e importación.
 - `dist/assets/suite-core.js`: cálculos y reparto de precios en céntimos.
 - `database/suite.sql`: esquema inicial y funciones del inventario compartido; ya aplicado al proyecto de Boletas AO. No ejecutarlo otra vez como un cambio incremental.
@@ -37,7 +39,7 @@ Las fotos nuevas se guardan en `ao-product-images`. El catálogo público recibe
 ## Validación
 
 ```sh
-python build_suite.py
+python publish.py
 python build_integrations.py
 python tests/check_assets.py
 node --test tests/core.test.cjs tests/catalog.test.cjs tests/stock.test.cjs tests/theme.test.cjs tests/receipt-history.test.cjs
@@ -46,6 +48,10 @@ node --test tests/core.test.cjs tests/catalog.test.cjs tests/stock.test.cjs test
 `tests/transactions.sql` prueba contra PostgreSQL precio final, ganancias, cliente, stock, compras externas, importación sin duplicados y permisos. Su transacción termina con `ROLLBACK`; no conserva ventas de prueba ni avanza la numeración.
 
 `tests/deletion.sql` comprueba eliminación, recuperación del stock público, ganancias, reintentos sin duplicar stock, reventa de unidades recuperadas, boletas anteriores sin inventario, conservación de compras externas, correo en curso y permisos. También termina con `ROLLBACK`.
+
+`tests/activation.sql` comprueba contra PostgreSQL que activar el descuento automático registra la cantidad del catálogo anterior como unidades reales sin costo (sin duplicar en reintentos), que una venta en boleta o en Compras baja el stock publicado y que eliminar la boleta lo devuelve. Termina con `ROLLBACK`.
+
+`tests/receipt-numbering.test.cjs` comprueba que tras emitir se abre la boleta siguiente solo cuando corresponde (no al reabrir una boleta del historial) y que no retiene los botones de exportación.
 
 `tests/receipt-history.test.cjs` comprueba abrir/cancelar/confirmar la eliminación desde la página, errores visibles, reintentos, solicitudes duplicadas, fallos de recarga y cierre de sesión durante una petición.
 

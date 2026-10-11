@@ -34,7 +34,11 @@
   const quantity=value=>{const text=String(value).trim();if(!/^\d{1,6}$/.test(text)||Number(text)>100000)throw Error('Ingresa una cantidad entera válida.');return Number(text);};
   const productStock=(product,units)=>product.managed?units.filter(u=>available(u)&&String(u.product_id)===String(product.id)).length:Number(product.reference_stock||0);
   const filterStock=(products,units,mode)=>products.filter(p=>mode==='replenish'?productStock(p,units)===0:productStock(p,units)>0);
-  const api={cents,optionalCents,realCost,allocate,validateParts,repriceParts,available,quantity,productStock,filterStock};
+  // Productos del catálogo anterior: su cantidad es un número sin unidades reales, así que las ventas no pueden descontarla.
+  const legacyProducts=products=>products.filter(p=>!p.managed);
+  // Registra esa cantidad como unidades reales sin costo; desde entonces cada venta descuenta una unidad.
+  const legacyStockArgs=(product,requestKey,date)=>({request_key:requestKey,product_key:product.id,product_name:product.data.name,target_quantity:Number(product.reference_stock||0),expected_quantity:0,cost_per_unit:0,supplier:null,purchased_on:date});
+  const api={cents,optionalCents,legacyProducts,legacyStockArgs,realCost,allocate,validateParts,repriceParts,available,quantity,productStock,filterStock};
   if(typeof window!=='undefined')window.AOSuiteCore=api;
   if(typeof module!=='undefined')module.exports=api;
 })();

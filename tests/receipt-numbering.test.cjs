@@ -4,9 +4,10 @@ const start=receipt.indexOf('async function startNextReceipt'),end=receipt.index
 assert.ok(start>0&&end>start);
 const source=receipt.slice(start,end);
 // La función se ejecuta aislada con el estado mínimo que usa la pantalla de boletas.
-function screen({issued=true,advanceId='A',currentId='A',nextNumber=111}={}){
-  const calls=[],toasts=[];
-  const context=vm.createContext({calls,toasts,crypto:{randomUUID:()=>'NEW'},
+function screen({issued=true,advanceId='A',currentId='A',nextNumber=111,banner=null}={}){
+  const calls=[],toasts=[],banners=[];
+  const status={hidden:!banner,classList:{contains:name=>name==='problem'&&!!banner?.problem}},message={textContent:banner?.text||''};
+  const context=vm.createContext({calls,toasts,banners,$:id=>id==='emailDeliveryStatus'?status:message,deliveryMessage:(text,problem,retry)=>banners.push({text,problem,retry}),crypto:{randomUUID:()=>'NEW'},
     autoAdvanceId:advanceId,cloudReceiptId:currentId,viewingIssued:issued,pendingDelivery:{to:'a@b.pe'},
     data:{series:'b001',number:'110',observations:'1 AÑO DE GARANTÍA.'},
     emptyReceipt:(number,series,observations)=>({number,series,observations}),
@@ -33,4 +34,18 @@ test('Una boleta antigua abierta desde el historial no avanza',async()=>{
 test('No avanza si la boleta mostrada cambió mientras se enviaba',async()=>{
   const s=screen({currentId:'OTHER'});await vm.runInContext("startNextReceipt('emitida y enviada')",s);
   assert.equal(s.cloudReceiptId,'OTHER');assert.equal(s.viewingIssued,true);assert.deepEqual(s.toasts,[]);
+});
+test('El aviso de la boleta anterior (por ejemplo, sin copia del PDF en la nube) sigue visible tras abrir la nueva',async()=>{
+  const s=screen({banner:{text:'Boleta guardada y PDF descargado. No se pudo guardar la copia del PDF en la nube.',problem:true}});
+  await vm.runInContext("startNextReceipt('emitida y guardada')",s);
+  assert.deepEqual(s.banners,[{text:'Boleta guardada y PDF descargado. No se pudo guardar la copia del PDF en la nube.',problem:true,retry:false}]);
+});
+test('Sin aviso previo no se muestra ningún aviso',async()=>{
+  const s=screen();await vm.runInContext("startNextReceipt('emitida y guardada')",s);
+  assert.deepEqual(s.banners,[]);
+});
+test('Quien llama no espera la consulta del número: el estado queda listo antes de que responda',()=>{
+  const s=screen();const pending=vm.runInContext("startNextReceipt('emitida y enviada')",s);
+  assert.equal(s.viewingIssued,false);assert.equal(s.cloudReceiptId,'NEW');assert.ok(pending instanceof Promise||typeof pending.then==='function');
+  return pending;
 });

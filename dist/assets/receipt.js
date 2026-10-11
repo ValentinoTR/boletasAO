@@ -105,8 +105,8 @@ async function exportPDF(){
   download(bytes,filename('pdf',snapshot),'application/pdf');saveDraft();
   try{await cloud.upload(issuedId,bytes);}catch(e){deliveryMessage('Boleta guardada y PDF descargado. No se pudo guardar la copia del PDF en la nube; puedes volver a exportarla desde el historial.',true,false);}
   if(cloudReceiptId!==issuedId||!viewingIssued)throw Error('La boleta fue eliminada. Crea una nueva con los datos correctos.');
-  if(sendRequested){pendingDelivery={requestId:crypto.randomUUID(),to:snapshot.email.trim(),customer:snapshot.customer,series:snapshot.series.toUpperCase(),number:snapshot.number,date:snapshot.date,total:formatMoney(calculate(snapshot).total),filename:filename('pdf',snapshot),pdfBase64:bytesToBase64(bytes)};if(await deliverPendingEmail())await startNextReceipt('emitida y enviada');}
-  else{toast('Boleta guardada en la nube. PDF descargado para compartir.');await startNextReceipt('emitida y guardada');}
+  if(sendRequested){pendingDelivery={requestId:crypto.randomUUID(),to:snapshot.email.trim(),customer:snapshot.customer,series:snapshot.series.toUpperCase(),number:snapshot.number,date:snapshot.date,total:formatMoney(calculate(snapshot).total),filename:filename('pdf',snapshot),pdfBase64:bytesToBase64(bytes)};if(await deliverPendingEmail())startNextReceipt('emitida y enviada');}
+  else{toast('Boleta guardada en la nube. PDF descargado para compartir.');startNextReceipt('emitida y guardada');}
  }catch(e){$('errorBox').textContent=e.message||'No se pudo guardar la boleta. Revisa tu conexión e inténtalo otra vez.';$('errorBox').hidden=false;}
  finally{exporting=false;document.querySelectorAll('.export-btn').forEach(b=>b.disabled=!ready);$('retryEmailBtn').disabled=false;updateEmailButtons();}
 }
@@ -139,7 +139,7 @@ async function deliverPendingEmail(){
  if(!pendingDelivery)return;
  if(!emailService.available||!emailService.configured){deliveryMessage('PDF descargado. El administrador debe activar el correo de la empresa para enviarlo a '+pendingDelivery.to+'. Después pulsa Reintentar envío.',true,true);toast('PDF descargado. Falta conectar el correo de la empresa.');return;}
  const job=pendingDelivery;deliveryMessage('PDF descargado. Enviando la boleta a '+job.to+'…');
- try{await emailAPI('/api/send',job);deliveryMessage('Boleta enviada a '+job.to+' desde '+emailService.sender+'. El PDF también quedó descargado.');if(pendingDelivery===job)pendingDelivery=null;toast('PDF descargado y correo enviado.');return true;}
+ try{await emailAPI('/api/send',job);deliveryMessage('Boleta '+job.series+'-'+job.number+' enviada a '+job.to+' desde '+emailService.sender+'. El PDF también quedó descargado.');if(pendingDelivery===job)pendingDelivery=null;toast('PDF descargado y correo enviado.');return true;}
  catch(e){const uncertain=e.code==='delivery_unknown';deliveryMessage('PDF descargado. '+e.message, true,!uncertain);toast(uncertain?'Comprueba la recepción antes de volver a exportar.':'El PDF está descargado; el correo sigue pendiente.');}
  return false;
 }
@@ -147,9 +147,13 @@ async function deliverPendingEmail(){
 async function startNextReceipt(outcome){
  if(!autoAdvanceId||autoAdvanceId!==cloudReceiptId||!viewingIssued)return;
  const done='Boleta '+data.series.toUpperCase()+'-'+data.number+' '+outcome+'.';
+ const status={shown:!$('emailDeliveryStatus').hidden,text:$('emailDeliveryMessage').textContent,problem:$('emailDeliveryStatus').classList.contains('problem')};
  autoAdvanceId=null;pendingDelivery=null;viewingIssued=false;cloudReceiptId=crypto.randomUUID();
  data=emptyReceipt('110',data.series.toUpperCase(),data.observations);
  resetErrors();hydrate();saveDraft();
+ // El resultado de la boleta anterior (por ejemplo, que no se guardó su copia en la nube) sigue a la vista.
+ if(status.shown)deliveryMessage(status.text,status.problem,false);
+ // El número se consulta sin retener los botones de exportación (quien llama no espera esta función).
  const numbered=await refreshCloudNumber();
  toast(done+(numbered?' Nueva boleta lista: '+data.series.toUpperCase()+'-'+data.number+'.':' Nueva boleta lista; su número se asignará al emitir.'));
 }
@@ -166,7 +170,7 @@ $('emailSettingsForm').addEventListener('submit',async e=>{
  finally{settings.secret='';button.disabled=false;button.textContent='Guardar y conectar';}
 });
 $('disconnectEmailBtn').addEventListener('click',async()=>{const button=$('disconnectEmailBtn');button.disabled=true;try{await emailAPI('/api/disconnect',{});await initEmailService();$('emailSettingsMessage').textContent='Correo desconectado para todos los usuarios.';}catch(err){$('emailSettingsMessage').textContent=err.message;}finally{button.disabled=false;}});
-$('retryEmailBtn').addEventListener('click',async()=>{if(exporting)return;exporting=true;$('retryEmailBtn').disabled=true;document.querySelectorAll('.export-btn').forEach(b=>b.disabled=true);try{if(await deliverPendingEmail())await startNextReceipt('emitida y enviada');}finally{exporting=false;$('retryEmailBtn').disabled=false;document.querySelectorAll('.export-btn').forEach(b=>b.disabled=!ready);updateEmailButtons();}});
+$('retryEmailBtn').addEventListener('click',async()=>{if(exporting)return;exporting=true;$('retryEmailBtn').disabled=true;document.querySelectorAll('.export-btn').forEach(b=>b.disabled=true);try{if(await deliverPendingEmail())startNextReceipt('emitida y enviada');}finally{exporting=false;$('retryEmailBtn').disabled=false;document.querySelectorAll('.export-btn').forEach(b=>b.disabled=!ready);updateEmailButtons();}});
 $('receiptForm').addEventListener('submit',e=>e.preventDefault());
 $('receiptForm').addEventListener('input',e=>{const el=e.target;if(el.dataset.field){data[el.dataset.field]=cleanText(el.value);if(el.id==='docType')updateDocumentField();if(el.id==='series')refreshCloudNumber();}else if(el.dataset.item){const index=Number(el.closest('[data-index]').dataset.index);data.items[index][el.dataset.item]=cleanText(el.value);if(["price","quantity"].includes(el.dataset.item))syncInventoryPrice(data.items[index]);}else return;update();queueSave();});
 $('items').addEventListener('click',e=>{const b=e.target.closest('[data-remove]');if(!b)return;const index=Number(b.dataset.remove),item=data.items[index];if((item.description.trim()||item.price.trim()||item.serial.trim())&&!confirm('¿Eliminar este producto de la boleta?'))return;data.items.splice(index,1);if(!data.items.length)data.items.push(newItem());renderItems();update();queueSave();});

@@ -52,3 +52,9 @@ test('Una compra externa puede venderse sin indicar su costo',()=>{
   assert.throws(()=>core.validateParts([{source:'external',name:'Ryzen 7 9800X3D',cost:'abc',price:'1800.00'}]));
   assert.throws(()=>core.validateParts([{source:'external',name:'Ryzen 7 9800X3D',cost:'',price:''}]));
 });
+test('Los productos del catálogo anterior se activan como unidades reales sin costo',()=>{
+  const products=[{id:1,managed:false,reference_stock:2,data:{name:'Ryzen 7 7700X'}},{id:2,managed:true,reference_stock:0,data:{name:'SSD'}},{id:3,managed:false,reference_stock:0,data:{name:'Ryzen 5 5600'}}];
+  assert.deepEqual(core.legacyProducts(products).map(p=>p.id),[1,3]);
+  assert.deepEqual(core.legacyStockArgs(products[0],'key','2026-10-11'),{request_key:'key',product_key:1,product_name:'Ryzen 7 7700X',target_quantity:2,expected_quantity:0,cost_per_unit:0,supplier:null,purchased_on:'2026-10-11'});
+  assert.equal(core.legacyStockArgs(products[2],'k','2026-10-11').target_quantity,0);
+});
