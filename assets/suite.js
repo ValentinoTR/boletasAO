@@ -239,7 +239,7 @@
     const term=$("inventorySearch").value.trim().toLocaleLowerCase("es");
     const eligible=units.filter(u=>available(u)&&!blockedIds.has(String(u.id))&&u.nombre.toLocaleLowerCase("es").includes(term));
     renderCatalogueOptions(term);
-    $("inventoryUnits").innerHTML=eligible.map(u=>`<label class="unit-row"><input type="checkbox" data-pick-unit="${u.id}" ${picking.some(p=>p.source==="stock"&&String(p.id)===String(u.id))?"checked":""}><span><strong>${esc(u.nombre)}</strong><small>Unidad #${u.id}${u.serial?" · "+esc(u.serial):""}${u.estimated?(u.calculatedCost?" · costo repartido":" · sin costo indicado"):""}</small></span><strong>${money(u.calculatedCost)}</strong></label>`).join("")||'<p class="empty">No hay unidades registradas en tu stock para esta búsqueda. Abajo puedes elegir un producto de tu web o agregar uno de otra tienda.</p>';
+    $("inventoryUnits").innerHTML=eligible.map(u=>`<label class="unit-row"><input type="checkbox" data-pick-unit="${u.id}" ${picking.some(p=>p.source==="stock"&&String(p.id)===String(u.id))?"checked":""}><span><strong>${esc(u.nombre)}</strong><small>Unidad #${u.id}${u.serial?" · "+esc(u.serial):""}${u.estimated?(u.calculatedCost?" · costo repartido":" · sin costo indicado"):""}</small></span><strong>${u.calculatedCost?"costo "+money(u.calculatedCost):"sin costo"}</strong></label>`).join("")||'<p class="empty">No hay unidades registradas en tu stock para esta búsqueda. Abajo puedes elegir un producto de tu web o agregar uno de otra tienda.</p>';
     $("inventorySelected").innerHTML=picking.map((p,i)=>`<div class="selected-part"><div><strong>${esc(p.name)}</strong><small>${p.source==="stock"?"Mi stock · unidad #"+esc(p.id):"Compra para esta venta"} · ${!Number(p.source==="stock"?units.find(u=>String(u.id)===String(p.id))?.calculatedCost:p.cost)?"sin costo indicado":"costo "+money(p.source==="stock"?units.find(u=>String(u.id)===String(p.id))?.calculatedCost:p.cost)}</small></div><label>Venta (S/)<input type="number" min="0" step="0.01" value="${esc(p.price)}" data-part-price="${i}" aria-label="Precio de venta de ${esc(p.name)}"></label><button type="button" class="quiet" data-remove-part="${i}" aria-label="Quitar ${esc(p.name)}">✕</button></div>`).join("")||'<p class="empty">Selecciona lo que entregas al cliente.</p>';
     if(picking.some(partWithoutCost))$("inventorySelected").insertAdjacentHTML("beforeend",'<p class="hint">Lo que figura «sin costo indicado» cuenta todo su precio como ganancia, y su costo no se puede corregir después de emitir la boleta.</p>');
     updatePickerTotal();
@@ -248,7 +248,7 @@
   function renderCatalogueOptions(term) {
     const matches=products.filter(p=>(p.managed?stock(p)===0:true)&&(p.data.name+" "+(p.data.brand||"")).toLocaleLowerCase("es").includes(term));
     const typed=$("inventorySearch").value.trim();
-    const rows=matches.slice(0,30).map(p=>`<div class="unit-row catalogue-row"><span><strong>${esc(p.data.name)}</strong><small>${p.managed?"Para reponer · sin unidades en stock":stock(p)>0?"Catálogo anterior · "+stock(p)+" unidad(es) · se registrarán en tu stock y esta venta descontará una":"Catálogo anterior · sin unidades"}</small></span><strong>${money(p.web_price)}</strong><button type="button" class="secondary" ${!p.managed&&stock(p)>0?"data-activate-stock":"data-use-catalogue"}="${esc(p.id)}">Agregar</button></div>`);
+    const rows=matches.slice(0,30).map(p=>`<div class="unit-row catalogue-row"><span><strong>${esc(p.data.name)}</strong><small>${p.managed?"Para reponer · sin unidades en stock · se agrega sin costo":stock(p)>0?"Catálogo anterior · "+stock(p)+" unidad(es) · se registrarán en tu stock y esta venta descontará una":"Catálogo anterior · sin unidades · se agrega sin costo"}</small></span><strong>${money(p.web_price)}</strong><button type="button" class="secondary" ${!p.managed&&stock(p)>0?"data-activate-stock":"data-use-catalogue"}="${esc(p.id)}">Agregar</button></div>`);
     if(typed)rows.unshift(`<div class="unit-row catalogue-row"><span><strong>«${esc(typed)}»</strong><small>No está en mi stock · agregar como compra de otra tienda</small></span><button type="button" class="secondary" data-use-other>Agregar</button></div>`);
     $("inventoryCatalogue").innerHTML=rows.length?`<h3>Productos de mi web y otras tiendas</h3><p class="hint">Estos productos no tienen unidades en tu stock. Al agregarlos solo necesitas el precio de venta; si indicas su costo real, tu ganancia será exacta.${matches.length>30&&!typed?" Escribe en el buscador para ver el resto.":""}</p><div class="unit-list">${rows.join("")}</div>`:"";
   }
@@ -282,7 +282,16 @@
     const use=e.target.closest("[data-use-catalogue]"),other=e.target.closest("[data-use-other]");
     if(!use&&!other)return;
     let name=$("inventorySearch").value.trim();
-    if(use){const p=products.find(p=>String(p.id)===use.dataset.useCatalogue);if(!p)return;name=p.data.name;$("externalPrice").value=Number(p.web_price)>0?Number(p.web_price).toFixed(2):"";}else $("externalPrice").value="";
+    if(use){
+      const p=products.find(p=>String(p.id)===use.dataset.useCatalogue);if(!p)return;
+      // Con precio en la web se agrega de un clic, sin formulario; el precio se puede cambiar en la lista de abajo.
+      if(Number(p.web_price)>0){
+        picking.push({source:"external",name:p.data.name.slice(0,350),supplier:"",cost:"0.00",price:Number(p.web_price).toFixed(2)});
+        renderPicker();$("inventoryMessage").classList.add("success");$("inventoryMessage").textContent=`«${p.data.name}» se agregó a esta venta a ${money(p.web_price)}, sin costo. Puedes cambiar el precio en la lista de abajo.`;
+        $("inventorySelected").scrollIntoView({block:"nearest"});return;
+      }
+      name=p.data.name;$("externalPrice").value="";
+    }else $("externalPrice").value="";
     $("externalName").value=name.slice(0,350);$("externalSupplier").value="";$("externalCost").value="";
     $("inventoryMessage").classList.remove("success");$("inventoryMessage").textContent=`«${name}» está listo abajo: confirma el precio de venta (el costo es opcional) y pulsa «Agregar a esta venta».`;
     $("externalPrice").scrollIntoView({block:"center"});$("externalPrice").focus();$("externalPrice").select();
