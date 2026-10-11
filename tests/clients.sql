@@ -36,12 +36,13 @@ begin
     'unit','NIU','quantity','1','price','50.00','inventoryMode','units','inventory',jsonb_build_array(jsonb_build_object('source','external','name','PRUEBA MOUSE','supplier','Venta sin stock','cost','0.00','price','50.00'))))));
   if (select count(*) from public.ao_clients where doc_type='DNI' and document='22222222')<>1 then raise exception 'El cliente no se volvió a registrar'; end if;
 
-  -- Sin acceso al equipo no se puede eliminar.
+  -- Sin acceso al equipo no se puede eliminar (con el id real del cliente, leído antes como dueño).
+  select id into client from public.ao_clients where doc_type='DNI' and document='22222222';
   perform set_config('request.jwt.claims','{"sub":"99999999-9999-9999-9999-999999999999","role":"authenticated"}',true);
   rejected:=false;
-  begin perform public.ao_suite_delete_client((select id from public.ao_clients where document='22222222'));
+  begin perform public.ao_suite_delete_client(client);
     exception when insufficient_privilege then rejected:=true; end;
-  if not rejected then raise exception 'Una cuenta ajena puede eliminar clientes'; end if;
+  if not rejected or client is null then raise exception 'Una cuenta ajena puede eliminar clientes'; end if;
 end;
 $$;
 rollback;

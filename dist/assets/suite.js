@@ -286,22 +286,26 @@
   $("deleteClientForm").addEventListener("submit",async e=>{
     e.preventDefault();if(!db||!deletingClient||clientDeleteBusy)return;
     const target=deletingClient,current=()=>deletingClient===target&&generation===target.generation;
+    $("deleteClientMessage").setAttribute("tabindex","-1");$("deleteClientMessage").textContent="Eliminando el cliente…";$("deleteClientMessage").focus();
     clientDeleteBusy=true;for(const id of ["deleteClientConfirm","deleteClientCancel","deleteClientClose"])$(id).disabled=true;
-    $("deleteClientConfirm").textContent="Eliminando…";$("deleteClientMessage").textContent="Eliminando el cliente…";
+    $("deleteClientConfirm").textContent="Eliminando…";
     try{
       const result=await rpc("ao_suite_delete_client",{client_key:target.id});
       if(!current())return;
       if(!result?.deleted)throw Error("El servidor no confirmó la eliminación. Inténtalo de nuevo.");
       let refreshed=true;try{await refreshAfterMutation();}catch{refreshed=false;}
       if(!current())return;
-      resetClientDeletion();toast(`Cliente «${target.name}» eliminado.`+(refreshed?"":" Pulsa Actualizar para recargar la lista."));
+      resetClientDeletion();$("clientSearch").focus();toast(`Cliente «${target.name}» eliminado.`+(refreshed?"":" Recarga la página para ver la lista actualizada."));
     }catch(error){
       if(!current())return;
-      // La función se agrega con database/delete_clients.sql; sin ella, la base de datos no la encuentra.
-      const missing=error?.code==="PGRST202"||/could not find the function|ao_suite_delete_client/i.test(error?.message||"");
+      // La función se agrega con database/delete_clients.sql; sin ella, la base de datos responde que no la encuentra.
+      const missing=error?.code==="PGRST202"||/could not find the function/i.test(error?.message||"");
+      const hasReceipts=error?.code==="23503"||/boleta\(s\) emitida/.test(error?.message||"");
       $("deleteClientMessage").textContent=missing?"Falta activar la eliminación de clientes en tu base de datos: ejecuta una vez database/delete_clients.sql en el editor SQL de Supabase.":(error?.message||String(error));
+      // Si mientras tanto el cliente recibió una boleta, ya no se ofrece eliminarlo y la lista se actualiza.
+      if(hasReceipts){$("deleteClientConfirm").hidden=true;$("deleteClientDetails").textContent="Sus boletas son el historial de la venta, por eso no se puede eliminar. Si alguna fue un error, elimínala primero en «Boletas emitidas».";refreshAfterMutation().catch(()=>{});}
     }finally{
-      if(current()){clientDeleteBusy=false;for(const id of ["deleteClientConfirm","deleteClientCancel","deleteClientClose"])$(id).disabled=false;$("deleteClientConfirm").textContent="Sí, eliminar cliente";}
+      if(current()){clientDeleteBusy=false;for(const id of ["deleteClientConfirm","deleteClientCancel","deleteClientClose"])$(id).disabled=false;$("deleteClientConfirm").textContent="Sí, eliminar cliente";if($("deleteClientDialog").open)$("deleteClientCancel").focus();}
     }
   });
   for(const id of ["deleteClientCancel","deleteClientClose"])$(id).addEventListener("click",()=>{if(!clientDeleteBusy)resetClientDeletion();});

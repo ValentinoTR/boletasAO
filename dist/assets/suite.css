@@ -18,3 +18,4 @@ button,input,textarea,select{font:inherit}textarea,select{width:100%;padding:12p
 #inventoryDialog #inventorySearch{margin-top:12px}#inventoryDialog .picker-footer{position:sticky;bottom:-25px;margin:12px 0 -25px;padding:10px 0 25px;background:var(--paper,#fff);border-top:1px solid var(--line,#e7e2ed);z-index:1}#inventoryDialog .picker-footer .sale-summary{margin:0 0 8px}#inventoryDialog .picker-footer .message:empty{display:none}#inventoryDialog .picker-footer .message{margin:0 0 8px}@media(max-width:600px){#inventoryDialog .picker-footer{bottom:-19px;margin-bottom:-19px;padding-bottom:19px}}
 .client-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.client-head>button{flex:none}#deleteClientDetails{line-height:1.65;font-size:13px}
 #deleteClientSummary{margin:0 0 10px;font-weight:600}
+.client-head>h2{min-width:0;overflow-wrap:anywhere}

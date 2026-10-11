@@ -1,8 +1,9 @@
--- Incremental update for an existing AO Nexus Central installation (run once in the Supabase SQL editor).
+-- Incremental update for an existing AO Nexus Central installation (run once in the Supabase SQL editor;
+-- running it again is harmless).
 -- Lets the team remove a client that has no issued receipts, for example a test or duplicated client.
 -- Clients with receipts are kept: their receipts are the sale history. Delete those receipts first
 -- («Boletas emitidas → Eliminar»); a deleted receipt no longer counts as a sale of the client.
-create function ao_private.suite_delete_client(client_key uuid)
+create or replace function ao_private.suite_delete_client(client_key uuid)
 returns jsonb language plpgsql security definer set search_path='' as $$
 declare
   saved public.ao_clients%rowtype;
@@ -26,7 +27,7 @@ end;
 $$;
 revoke all on function ao_private.suite_delete_client(uuid) from public,anon;
 grant execute on function ao_private.suite_delete_client(uuid) to authenticated;
-create function public.ao_suite_delete_client(client_key uuid)
+create or replace function public.ao_suite_delete_client(client_key uuid)
 returns jsonb language sql security invoker set search_path='' as $$
   select ao_private.suite_delete_client(client_key);
 $$;

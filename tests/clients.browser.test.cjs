@@ -20,23 +20,24 @@ test.after(async()=>{await browser?.close();server?.close();});
 const skip=!playwright&&'Playwright no está instalado';
 const CLIENTS=[{id:'c-sin',name:'marcelo tambini',doc_type:'DNI',document:'22222222',email:'marcelo@example.com'},{id:'c-con',name:'Cliente Frecuente',doc_type:'DNI',document:'11111111',email:''}];
 const RECEIPT={id:'r-1',series:'B001',number:'110',date:'2026-10-11',total_cents:34000,payload:{items:[{description:'RYZEN 5 5500'}]}};
-async function open({missingFunction=false,latency=0}={}){
-  const page=await (await browser.newContext({viewport:{width:1000,height:900}})).newPage();
+async function open({missingFunction=false,denied=false,latency=0,clients=CLIENTS,width=1000}={}){
+  const page=await (await browser.newContext({viewport:{width,height:900}})).newPage();
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.route('**/*supabase.co/**',r=>r.abort());
   await page.route('**/accounting.html',r=>r.fulfill({status:200,contentType:'text/html',body:'<html></html>'}));
   await page.goto(base+'/index.html');
-  await page.evaluate(({clients,receipt,missingFunction,latency})=>{
+  await page.evaluate(({clients,receipt,missingFunction,denied,latency})=>{
     const db=window.__db={ao_products:[],COMPRAS:[],COMPONENTES:[],ao_clients:clients,ao_sales:[{receipt_id:receipt.id,client_id:'c-con'}],ao_receipts:[receipt],ao_suite_state:[]};
     window.__rpc=[];const wait=ms=>new Promise(r=>setTimeout(r,ms));
     const client={from:t=>({select:()=>({order:()=>({range:async start=>({data:start===0?structuredClone(db[t]||[]):[],error:null})})})}),
       rpc:async(name,args)=>{window.__rpc.push({name,args});await wait(latency);
         if(missingFunction)return {data:null,error:{code:'PGRST202',message:'Could not find the function public.ao_suite_delete_client(client_key) in the schema cache'}};
+        if(denied)return {data:null,error:{code:'42501',message:'permission denied for function ao_suite_delete_client'}};
         if(db.ao_sales.some(s=>s.client_id===args.client_key))return {data:null,error:{code:'23503',message:'Este cliente tiene 1 boleta(s) emitida(s). Para eliminarlo, primero elimina sus boletas en «Boletas emitidas».'}};
         db.ao_clients=db.ao_clients.filter(c=>c.id!==args.client_key);return {data:{deleted:true,already_deleted:false,id:args.client_key},error:null};}};
     document.getElementById('loginView').hidden=true;document.getElementById('appView').hidden=false;document.getElementById('clientsView').hidden=false;
     window.__ready=window.AOSuite.initialize(client,{role:'owner'});
-  },{clients:CLIENTS,receipt:RECEIPT,missingFunction,latency});
+  },{clients,receipt:RECEIPT,missingFunction,denied,latency});
   await page.evaluate(()=>window.__ready);
   return {page,errors,names:()=>page.$$eval('#clientList .card h2',e=>e.map(x=>x.textContent))};
 }
@@ -84,4 +85,29 @@ test('Mientras se elimina, la ventana no se cierra con Esc',{skip},async()=>{
   assert.equal(await s.page.$eval('#deleteClientDialog',d=>d.open),true);
   await s.page.waitForFunction(()=>!document.getElementById('deleteClientDialog').open);
   assert.deepEqual(await s.names(),['Cliente Frecuente']);
+});
+
+test('Si el cliente recibió una boleta con la ventana abierta, ya no se ofrece eliminarlo y la lista se actualiza',{skip},async()=>{
+  const s=await open();
+  await s.page.click('[data-delete-client="c-sin"]');
+  await s.page.evaluate(()=>{window.__db.ao_sales.push({receipt_id:'r-2',client_id:'c-sin'});window.__db.ao_receipts.push({id:'r-2',series:'B001',number:'111',date:'2026-10-11',total_cents:5000,payload:{items:[{description:'Mouse'}]}});});
+  await s.page.click('#deleteClientConfirm');
+  await s.page.waitForFunction(()=>/boleta\(s\) emitida/.test(document.getElementById('deleteClientMessage').textContent));
+  assert.equal(await s.page.isVisible('#deleteClientConfirm'),false);
+  assert.match(await s.page.textContent('#deleteClientDetails'),/historial de la venta/);
+  await s.page.waitForFunction(()=>/B001-111/.test(document.getElementById('clientList').textContent));
+});
+
+test('Un permiso denegado no se confunde con que falte la función',{skip},async()=>{
+  const s=await open({denied:true});
+  await s.page.click('[data-delete-client="c-sin"]');await s.page.click('#deleteClientConfirm');
+  await s.page.waitForFunction(()=>/permission denied/.test(document.getElementById('deleteClientMessage').textContent));
+  assert.doesNotMatch(await s.page.textContent('#deleteClientMessage'),/delete_clients\.sql/);
+});
+
+test('Un nombre de empresa largo no se sale de la pantalla en el celular',{skip},async()=>{
+  const s=await open({width:320,clients:[{id:'c-larga',name:'SERVICIOS DE TELECOMUNICACIONES INTERNACIONALES S.A.C.',doc_type:'RUC',document:'20123456789',email:''}]});
+  assert.ok(await s.page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'sin desplazamiento horizontal');
+  const b=await s.page.$eval('[data-delete-client="c-larga"]',e=>{const r=e.getBoundingClientRect();return r.right<=innerWidth;});
+  assert.ok(b,'el botón Eliminar queda dentro de la pantalla');
 });
