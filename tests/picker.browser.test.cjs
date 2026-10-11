@@ -48,7 +48,8 @@ async function open({products,purchases=[],units=[],latency=0}){
   const added=n=>page.waitForFunction(n=>document.querySelectorAll('#inventorySelected .selected-part').length===n,n);
   return {page,errors,pick,search,added,selected:()=>page.$$eval('#inventorySelected .selected-part',e=>e.length),message:()=>page.textContent('#inventoryMessage'),
     rows:()=>page.$$eval('#inventoryUnits .catalogue-row',rows=>rows.map(r=>r.querySelector('strong').textContent+' | '+r.querySelector('small').textContent)),
-    parts:()=>page.evaluate(()=>window.__pick)};
+    // Si el buscador no se cierra, la prueba falla en 5 s en lugar de quedarse esperando.
+    parts:()=>page.evaluate(()=>Promise.race([window.__pick,new Promise((_,reject)=>setTimeout(()=>reject(new Error('El buscador no se cerró al confirmar')),5000))]))};
 }
 const skip=!playwright&&'Playwright no está instalado';
 
