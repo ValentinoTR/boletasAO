@@ -46,3 +46,9 @@ test('El costo incluye cambio de moneda, impuesto y transporte', () => {
   assert.deepEqual(allocated.map(p=>p.calculatedCost),[163,150,150]);
   assert.deepEqual(allocated.map(p=>p.estimated),[false,true,true]);
 });
+test('Una compra externa puede venderse sin indicar su costo',()=>{
+  assert.equal(core.validateParts([{source:'external',name:'Ryzen 7 9800X3D',cost:'',price:'1800.00'}]),180000);
+  assert.equal(core.validateParts([{source:'external',name:'Ryzen 7 9800X3D',cost:'0.00',price:'1800.00'}]),180000);
+  assert.throws(()=>core.validateParts([{source:'external',name:'Ryzen 7 9800X3D',cost:'abc',price:'1800.00'}]));
+  assert.throws(()=>core.validateParts([{source:'external',name:'Ryzen 7 9800X3D',cost:'',price:''}]));
+});

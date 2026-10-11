@@ -16,7 +16,7 @@
   const validateParts=parts=>{
     if(!Array.isArray(parts)||!parts.length)throw Error('Selecciona al menos una unidad.');
     const ids=new Set();let total=0;
-    for(const p of parts){total+=cents(p.price);if(p.source==='stock'){const id=String(p.id);if(!/^\d+$/.test(id)||ids.has(id))throw Error('Una unidad de stock está repetida o es inválida.');ids.add(id);}else if(p.source==='external'){cents(p.cost);if(!String(p.name||'').trim())throw Error('Indica el nombre del producto comprado.');}else throw Error('Origen de producto inválido.');}
+    for(const p of parts){total+=cents(p.price);if(p.source==='stock'){const id=String(p.id);if(!/^\d+$/.test(id)||ids.has(id))throw Error('Una unidad de stock está repetida o es inválida.');ids.add(id);}else if(p.source==='external'){optionalCents(p.cost);if(!String(p.name||'').trim())throw Error('Indica el nombre del producto comprado.');}else throw Error('Origen de producto inválido.');}
     return total;
   };
   const repriceParts=(parts,totalCents)=>{

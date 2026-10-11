@@ -190,7 +190,7 @@
     const eligible=units.filter(u=>available(u)&&!blockedIds.has(String(u.id))&&u.nombre.toLocaleLowerCase("es").includes(term));
     renderCatalogueOptions(term);
     $("inventoryUnits").innerHTML=eligible.map(u=>`<label class="unit-row"><input type="checkbox" data-pick-unit="${u.id}" ${picking.some(p=>p.source==="stock"&&String(p.id)===String(u.id))?"checked":""}><span><strong>${esc(u.nombre)}</strong><small>Unidad #${u.id}${u.serial?" · "+esc(u.serial):""}${u.estimated?" · costo repartido":""}</small></span><strong>${money(u.calculatedCost)}</strong></label>`).join("")||'<p class="empty">No hay unidades registradas en tu stock para esta búsqueda. Abajo puedes elegir un producto de tu web o agregar uno de otra tienda.</p>';
-    $("inventorySelected").innerHTML=picking.map((p,i)=>`<div class="selected-part"><div><strong>${esc(p.name)}</strong><small>${p.source==="stock"?"Mi stock · unidad #"+esc(p.id):"Compra para esta venta"} · costo ${money(p.source==="stock"?units.find(u=>String(u.id)===String(p.id))?.calculatedCost:p.cost)}</small></div><label>Venta (S/)<input type="number" min="0" step="0.01" value="${esc(p.price)}" data-part-price="${i}" aria-label="Precio de venta de ${esc(p.name)}"></label><button type="button" class="quiet" data-remove-part="${i}" aria-label="Quitar ${esc(p.name)}">✕</button></div>`).join("")||'<p class="empty">Selecciona lo que entregas al cliente.</p>';
+    $("inventorySelected").innerHTML=picking.map((p,i)=>`<div class="selected-part"><div><strong>${esc(p.name)}</strong><small>${p.source==="stock"?"Mi stock · unidad #"+esc(p.id):"Compra para esta venta"} · ${p.source==="external"&&!Number(p.cost)?"sin costo indicado":"costo "+money(p.source==="stock"?units.find(u=>String(u.id)===String(p.id))?.calculatedCost:p.cost)}</small></div><label>Venta (S/)<input type="number" min="0" step="0.01" value="${esc(p.price)}" data-part-price="${i}" aria-label="Precio de venta de ${esc(p.name)}"></label><button type="button" class="quiet" data-remove-part="${i}" aria-label="Quitar ${esc(p.name)}">✕</button></div>`).join("")||'<p class="empty">Selecciona lo que entregas al cliente.</p>';
     updatePickerTotal();
   }
   // Productos de «Mi web» que aún no tienen unidades registradas (catálogo anterior o por reponer) y productos de otras tiendas.
@@ -199,7 +199,7 @@
     const typed=$("inventorySearch").value.trim();
     const rows=matches.slice(0,30).map(p=>`<div class="unit-row catalogue-row"><span><strong>${esc(p.data.name)}</strong><small>${p.managed?"Para reponer · sin unidades en stock":"Catálogo anterior · "+stock(p)+" unidad(es) sin vincular"}</small></span><strong>${money(p.web_price)}</strong><button type="button" class="secondary" data-use-catalogue="${esc(p.id)}">Agregar</button></div>`);
     if(typed)rows.push(`<div class="unit-row catalogue-row"><span><strong>«${esc(typed)}»</strong><small>No está en mi stock · agregar como compra de otra tienda</small></span><button type="button" class="secondary" data-use-other>Agregar</button></div>`);
-    $("inventoryCatalogue").innerHTML=rows.length?`<h3>Productos de mi web y otras tiendas</h3><p class="hint">Estos productos no tienen unidades en tu stock. Al agregarlos, indica su costo real de compra para calcular tu ganancia.${matches.length>30?" Escribe en el buscador para ver el resto.":""}</p><div class="unit-list">${rows.join("")}</div>`:"";
+    $("inventoryCatalogue").innerHTML=rows.length?`<h3>Productos de mi web y otras tiendas</h3><p class="hint">Estos productos no tienen unidades en tu stock. Al agregarlos solo necesitas el precio de venta; si indicas su costo real, tu ganancia será exacta.${matches.length>30?" Escribe en el buscador para ver el resto.":""}</p><div class="unit-list">${rows.join("")}</div>`:"";
   }
   $("inventoryCatalogue").addEventListener("click",e=>{
     const use=e.target.closest("[data-use-catalogue]"),other=e.target.closest("[data-use-other]");
@@ -207,8 +207,8 @@
     let name=$("inventorySearch").value.trim();
     if(use){const p=products.find(p=>String(p.id)===use.dataset.useCatalogue);if(!p)return;name=p.data.name;$("externalPrice").value=Number(p.web_price||0).toFixed(2);}
     $("externalName").value=name.slice(0,350);$("externalCost").value="";
-    $("inventoryMessage").classList.remove("success");$("inventoryMessage").textContent=`«${name}» está listo abajo: escribe su costo real y pulsa «Agregar a esta venta».`;
-    $("externalCost").scrollIntoView({block:"center"});$("externalCost").focus();
+    $("inventoryMessage").classList.remove("success");$("inventoryMessage").textContent=`«${name}» está listo abajo: confirma el precio de venta (el costo es opcional) y pulsa «Agregar a esta venta».`;
+    $("externalPrice").scrollIntoView({block:"center"});$("externalPrice").focus();$("externalPrice").select();
   });
   function updatePickerTotal() {let n=0,valid=true;for(const p of picking){try{n+=core.cents(p.price);}catch{valid=false;}}$("inventoryTotal").textContent=valid?money(n/100):"Revisa los precios";}
   $("inventorySearch").addEventListener("input",()=>renderPicker());
@@ -220,7 +220,7 @@
   $("inventorySelected").addEventListener("input",e=>{if(e.target.dataset.partPrice===undefined)return;picking[Number(e.target.dataset.partPrice)].price=e.target.value;updatePickerTotal();});
   $("inventorySelected").addEventListener("click",e=>{const b=e.target.closest("[data-remove-part]");if(!b)return;picking.splice(Number(b.dataset.removePart),1);renderPicker();});
   $("addExternal").addEventListener("click",()=>{
-    try{const p={source:"external",name:$("externalName").value.trim(),supplier:$("externalSupplier").value.trim(),cost:(core.cents($("externalCost").value)/100).toFixed(2),price:(core.cents($("externalPrice").value)/100).toFixed(2)};core.validateParts([p]);picking.push(p);for(const id of ["externalName","externalSupplier","externalCost","externalPrice"])$(id).value="";$("inventoryMessage").textContent="";renderPicker();}catch(error){report("inventoryMessage",error);}
+    try{if(!$("externalName").value.trim())throw Error("Indica el nombre del producto.");if(!$("externalPrice").value.trim())throw Error("Indica el precio al que lo vendes.");const p={source:"external",name:$("externalName").value.trim(),supplier:$("externalSupplier").value.trim(),cost:(core.optionalCents($("externalCost").value)/100).toFixed(2),price:(core.cents($("externalPrice").value)/100).toFixed(2)};core.validateParts([p]);picking.push(p);for(const id of ["externalName","externalSupplier","externalCost","externalPrice"])$(id).value="";$("inventoryMessage").textContent="";renderPicker();}catch(error){report("inventoryMessage",error);}
   });
   $("inventoryConfirm").addEventListener("click",()=>{
     try{core.validateParts(picking);if(picking.length>500)throw Error("Selecciona hasta 500 componentes.");const selected=structuredClone(picking),resolve=pickResolve;pickResolve=null;$("inventoryDialog").close();resolve(selected);}catch(error){report("inventoryMessage",error);}
