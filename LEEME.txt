@@ -16,9 +16,9 @@ Al sumar unidades, el costo de compra es opcional (vacio = S/ 0.00; se puede
 completar despues en Compras). En la boleta, el buscador de stock tambien
 muestra los productos de Mi web y deja agregar productos de otras tiendas.
 Al emitir una boleta (con o sin correo) se abre sola la siguiente: B001-110 -> B001-111.
-En el buscador de la boleta, un clic en Agregar basta para vender un producto de Mi web
-(no hay que rellenar el formulario); si tenia 1 en stock, al emitir queda en 0 y si
-elimina la boleta vuelve a 1.
+Al elegir productos para la boleta se ve solo MI STOCK (lo que tienes, con su cantidad).
+Un clic en Agregar basta, sin formulario ni costos; si tenias 1, al emitir queda en 0 y si
+eliminas la boleta vuelve a 1. Lo que no tienes se vende con "Venderlo igual".
 DESCUENTO AUTOMATICO DEL STOCK WEB: si vendes un producto (en una boleta o en
 Compras) su stock de la web baja solo, siempre que el producto tenga unidades
 reales. Para los productos del catalogo anterior usa Mi web -> Activar
