@@ -9,9 +9,10 @@
   let products = [], purchases = [], units = [], clients = [], sales = [], receipts = [], importState = {};
   let linking, linked = new Set(), picking = [], pickResolve, blockedIds = new Set(), editingProduct;
   let temporaryPhotoURL;
+  let publicCatalog=new Map(),catalogReady=false,catalogError="";
   const available = core.available;
   const productFor = u => products.find(p => String(p.id) === String(u.product_id));
-  const stock = p => core.productStock(p,units);
+  const stock = p => p.published ? (catalogReady ? publicCatalog.get(String(p.id))?.stock||0 : 0) : core.productStock(p,units);
   let catalogueMode="available", productRequest, stockRequest, stockEditing, stockRestocking, stockExpected, stockPreparation;
   function toast(message) { $("suiteToast").textContent = message; $("suiteToast").hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $("suiteToast").hidden = true, 6500); }
   function report(id,error) { $(id).textContent = error?.message || String(error); $(id).classList.remove("success"); }
@@ -24,22 +25,25 @@
     if(!db)return; if(loading)return loading;
     const current=generation, client=db;
     loading=(async()=>{
-      const result=await Promise.all(["ao_products","COMPRAS","COMPONENTES","ao_clients","ao_sales","ao_receipts","ao_suite_state"].map(t=>rows(client,t)));
+      const result=await Promise.all([...["ao_products","COMPRAS","COMPONENTES","ao_clients","ao_sales","ao_receipts","ao_suite_state"].map(t=>rows(client,t)),client.rpc("ao_catalog_snapshot",{})]);
+      if(result[7].error)throw result[7].error;
+      const catalogue=core.catalogRows(result[7].data);
       if(current!==generation)return;
       [products,purchases,units,clients,sales,receipts]=result;
+      publicCatalog=new Map(catalogue.filter(p=>window.AO_CATEGORIES[p.category]).map(p=>[String(p.id),p]));catalogReady=true;catalogError="";
       importState=result[6].find(s=>s.key==="legacy_import")?.value||{};
       const byPurchase=new Map(); for(const u of units){const key=String(u.compra_id);if(!byPurchase.has(key))byPurchase.set(key,[]);byPurchase.get(key).push(u);}
       units=purchases.flatMap(p=>core.allocate(p,byPurchase.get(String(p.id))||[]));
       renderCatalog(); renderClients(); renderImportStatus();
       $("accountingFrame").contentWindow?.renderInventario?.();
-    })().catch(error=>{if(current===generation)toast(error.message||"No se pudieron cargar los datos.");throw error;}).finally(()=>{if(current===generation)loading=null;});
+    })().catch(error=>{if(current===generation){catalogReady=false;catalogError=error.message||"No se pudieron cargar los datos.";toast(catalogError);renderCatalog();$("accountingFrame").contentWindow?.renderInventario?.();}throw error;}).finally(()=>{if(current===generation)loading=null;});
     return loading;
   }
   async function initialize(client,person) {
-    ++generation; db=client; member=person; loading=null;
+    ++generation; db=client; member=person; loading=null;publicCatalog=new Map();catalogReady=false;catalogError="";
     $("connectionNav").hidden=member.role!=="owner"; $("importForm").hidden=member.role!=="owner";
+    if(!$("accountingFrame").getAttribute("src"))$("accountingFrame").src="accounting.html?v=20261014-public-stock";
     await refresh();
-    if(!$("accountingFrame").getAttribute("src"))$("accountingFrame").src="accounting.html";
   }
   async function refreshAfterMutation() {
     // An earlier read may have started before the write. Finish it, then read
@@ -48,7 +52,7 @@
     return refresh();
   }
   function logout() {
-    ++generation;db=null;member=null;loading=null;activatingAll=false;activatingProduct=false;products=[];purchases=[];units=[];clients=[];sales=[];receipts=[];
+    ++generation;db=null;member=null;loading=null;publicCatalog=new Map();catalogReady=false;catalogError="";activatingAll=false;activatingProduct=false;products=[];purchases=[];units=[];clients=[];sales=[];receipts=[];
     for(const id of ["productDialog","linkDialog","inventoryDialog","stockDialog","autoStockDialog"])if($(id).open)$(id).close();resetClientDeletion();
     $("catalogGrid").replaceChildren();$("clientList").replaceChildren();$("oldPassword").value="";
   }
@@ -56,12 +60,15 @@
     const titles={dashboard:"Resumen del negocio",compras:"Compras y costos",inventario:"Inventario disponible",ventas:"Ventas y ganancias",catalog:"Productos de mi web",clients:"Clientes",editor:"Nueva boleta",history:"Boletas emitidas",team:"Mi equipo",account:"Mi cuenta",connection:"Conexión inicial"};
     $("suiteHeading").textContent=titles[name]||"AO Nexus Central";
     if(["dashboard","compras","inventario","ventas"].includes(name)){desiredView=name==="ventas"?"historial":name;$("accountingFrame").contentWindow?.navigateFromSuite?.(desiredView);}
-    if(["catalog","clients","connection"].includes(name))refresh().catch(()=>{});
+    if(["catalog","clients","connection","inventario"].includes(name))refresh().catch(()=>{});
   }
   $("accountingFrame").addEventListener("load",()=>$("accountingFrame").contentWindow?.navigateFromSuite?.(desiredView));
   function renderCatalog() {
+    if(!catalogReady){
+      $("catalogSummary").textContent='Stock sin verificar';$("catalogGrid").innerHTML='<p class="empty">No se pudo consultar el stock de tu web. Pulsa Actualizar para reintentar.</p>';$("catalogConnection").textContent=catalogError;return;
+    }
     const term=$("catalogSearch").value.trim().toLocaleLowerCase("es");
-    const filtered=core.filterStock(products,units,catalogueMode).filter(p=>(p.data.name+" "+p.data.brand).toLocaleLowerCase("es").includes(term));
+    const filtered=products.filter(p=>catalogueMode==='replenish'?stock(p)===0:stock(p)>0).filter(p=>(p.data.name+" "+p.data.brand).toLocaleLowerCase("es").includes(term));
     document.querySelectorAll('[data-stock-filter]').forEach(b=>{b.classList.toggle('active',b.dataset.stockFilter===catalogueMode);b.setAttribute('aria-pressed',String(b.dataset.stockFilter===catalogueMode));});
     const pending=core.legacyProducts(products).length;$("activateAutoStock").hidden=!pending;
     $("catalogSummary").innerHTML=[['Productos',products.length],['Publicados',products.filter(p=>p.published).length],['Unidades disponibles',products.filter(p=>p.published).reduce((n,p)=>n+stock(p),0)]].map(([label,value])=>`<div><span>${label}</span><strong>${value}</strong></div>`).join('');
@@ -121,7 +128,7 @@
   $("productQuantity").addEventListener('input',syncProductQuantity);
   function groupUnits(product){return units.filter(u=>available(u)&&(product.id?String(u.product_id)===String(product.id):!u.product_id&&u.nombre.trim().toLocaleLowerCase('es')===product.data.name.trim().toLocaleLowerCase('es')));}
   function openStock(product,restocking=false){
-    if(!product)return;stockEditing=product;stockRestocking=restocking;stockRequest=crypto.randomUUID();stockPreparation=product.id?{...productStock(product,stockIndex()),request:crypto.randomUUID(),purchasedOn:today(),linkedDone:false,complete:false}:null;stockExpected=stockPreparation?stockPreparation.total:groupUnits(product).length;
+    if(!product)return;if(product.published&&!catalogReady){toast("Actualiza el stock de tu web antes de modificarlo.");return;}stockEditing=product;stockRestocking=restocking;stockRequest=crypto.randomUUID();stockPreparation=product.id?{...productStock(product,stockIndex()),request:crypto.randomUUID(),purchasedOn:today(),linkedDone:false,complete:false}:null;stockExpected=stockPreparation?stockPreparation.total:groupUnits(product).length;
     $("stockForm").reset();$("stockTitle").textContent=(restocking?'Reponer · ':'Modificar stock · ')+product.data.name;
     $("stockSummary").textContent=stockExpected+' unidad(es) disponibles'+(stockPreparation?.extra?' · '+stockPreparation.extra+' del catálogo anterior':'');
     $("stockQuantityLabel").textContent=restocking?'¿Cuántas unidades estás trayendo?':'Cantidad disponible correcta';
@@ -140,16 +147,24 @@
       // únicamente la cantidad del catálogo que falta. Las claves permiten reintentar.
       const prep=stockPreparation;
       if(prep&&!prep.complete){
+        if(!prep.extraStarted&&!prep.linkStarted){
+          await refreshAfterMutation();
+          const latest=products.find(p=>String(p.id)===String(stockEditing.id));
+          const current=latest&&productStock(latest,stockIndex());
+          if(!current||current.total!==stockExpected)throw Error('El stock de tu web cambió mientras editabas. Cierra esta ventana y revisa la cantidad actual.');
+          Object.assign(prep,current);stockEditing=latest;
+        }
         if(prep.extra>1000)throw Error('Activa hasta 1000 unidades del catálogo anterior antes de modificar o reponer este producto.');
-        const linkedCount=prep.linked.length+prep.loose.length;
+        const linkedCount=prep.actualLinked+prep.loose.length;
         if(prep.loose.length&&!prep.linkedDone){
+          prep.linkStarted=true;
           await rpc('ao_suite_link_stock',{product_key:stockEditing.id,unit_keys:prep.loose.map(u=>Number(u.id)),expected_stock:linkedCount});
           prep.linkedDone=true;
         }
-        if(prep.extra>0)await rpc('ao_suite_set_stock',{...core.legacyStockArgs(stockEditing,prep.request,prep.purchasedOn),target_quantity:linkedCount+prep.extra,expected_quantity:linkedCount});
+        if(prep.extra>0){prep.extraStarted=true;await rpc('ao_suite_set_stock',{...core.legacyStockArgs(stockEditing,prep.request,prep.purchasedOn),target_quantity:linkedCount+prep.extra,expected_quantity:linkedCount});}
         prep.complete=true;
       }
-      const result=await rpc('ao_suite_set_stock',{request_key:stockRequest,product_key:stockEditing.id||null,product_name:stockEditing.data.name,target_quantity:target,expected_quantity:stockExpected,cost_per_unit:cost,supplier,purchased_on:purchasedOn});
+      const result=await rpc('ao_suite_set_stock',{request_key:stockRequest,product_key:stockEditing.id||null,product_name:stockEditing.data.name,target_quantity:target,expected_quantity:prep?prep.actualLinked+prep.loose.length+prep.extra:stockExpected,cost_per_unit:cost,supplier,purchased_on:purchasedOn});
       await refreshAfterMutation();$("accountingFrame").contentWindow?.refreshFromSuite?.();$("stockDialog").close();toast('Stock actualizado: '+result.quantity+' unidad(es) disponibles.');
     }
     catch(error){report('stockMessage',error);}finally{button.disabled=false;}
@@ -161,6 +176,7 @@
   // Compara nombres sin mayúsculas, tildes ni espacios repetidos.
   const nameKey=value=>{const text=String(value||"");let key=keyCache.get(text);if(key===undefined){key=text.normalize("NFD").replace(/[̀-ͯ]/g,"").toLocaleLowerCase("es").replace(/\s+/g," ").trim();keyCache.set(text,key);}return key;};
   const compactKey=value=>nameKey(value).replace(/[^a-z0-9ñ]/g,"");
+  const identityKey=value=>(nameKey(value).match(/[a-z0-9]+/g)||[]).sort().join(" ");
   // La búsqueda acepta las palabras en cualquier orden y sin importar espacios o guiones («AMD Ryzen 9 9900X», «1 TB», «B850-F»).
   const searchTokens=term=>nameKey(term).split(" ").map(word=>word.replace(/[^a-z0-9ñ]/g,"")).filter(Boolean);
   const matchesTokens=(text,tokens)=>{const c=compactKey(text);return tokens.every(word=>c.includes(word));};
@@ -176,29 +192,32 @@
   function stockIndex(){
     const byProduct=new Map(),ownerByKey=new Map(),looseByKey=new Map(),productIds=new Set(products.map(p=>String(p.id)));
     const noStock=new Set(purchases.filter(c=>c.proveedor===NO_STOCK_SUPPLIER).map(c=>String(c.id)));
-    for(const p of [...products].sort((x,y)=>Number(!!y.managed)-Number(!!x.managed))){const key=nameKey(p.data.name);if(!ownerByKey.has(key))ownerByKey.set(key,p);}
+    for(const p of products){const key=identityKey(p.data.name);ownerByKey.set(key,ownerByKey.has(key)?null:p);}
     for(const u of units){
       if(!available(u))continue;
       if(u.product_id&&productIds.has(String(u.product_id))){const id=String(u.product_id);if(!byProduct.has(id))byProduct.set(id,[]);byProduct.get(id).push(u);continue;}
       if(noStock.has(String(u.compra_id)))continue;
-      const key=nameKey(u.nombre);if(!looseByKey.has(key))looseByKey.set(key,[]);looseByKey.get(key).push(u);
+      const key=identityKey(u.nombre);if(!looseByKey.has(key))looseByKey.set(key,[]);looseByKey.get(key).push(u);
     }
     return {byProduct,ownerByKey,looseByKey};
   }
-  // Lo que tienes de un producto: sus unidades, las de Compras con su mismo nombre y, en el catálogo anterior, la cantidad que falta registrar.
+  // La cantidad pública manda; Compras solo permite reutilizar unidades y costos hasta esa cantidad.
   function productStock(p,ix){
-    const key=nameKey(p.data.name),linked=ix.byProduct.get(String(p.id))||[],loose=ix.ownerByKey.get(key)===p?(ix.looseByKey.get(key)||[]):[];
-    const extra=p.managed?0:Math.max(0,Number(p.reference_stock||0)-linked.length-loose.length);
-    return {linked,loose,extra,total:linked.length+loose.length+extra,free:linked.filter(freeUnit).length+loose.filter(freeUnit).length+extra};
+    const key=identityKey(p.data.name),linked=ix.byProduct.get(String(p.id))||[],loose=ix.ownerByKey.get(key)===p?(ix.looseByKey.get(key)||[]):[];
+    const total=stock(p),eligibleLinked=linked.slice(0,total);
+    const eligibleLoose=p.managed?[]:loose.slice(0,Math.max(0,total-eligibleLinked.length));
+    const extra=Math.max(0,total-eligibleLinked.length-eligibleLoose.length);
+    return {linked:eligibleLinked,loose:eligibleLoose,extra,total,actualLinked:linked.length,free:eligibleLinked.filter(freeUnit).length+eligibleLoose.filter(freeUnit).length+extra};
   }
   // Para que la venta descuente el stock: vincula las unidades de Compras con su nombre (conservan su costo)
   // y registra como unidades sin costo la cantidad del catálogo anterior que falte.
   async function registerStock(p,info){
+    if(!catalogReady)throw Error("Actualiza el stock de tu web antes de registrar unidades.");
     let changed=false;
-    if(info.loose.length){await rpc("ao_suite_link_stock",{product_key:p.id,unit_keys:info.loose.map(u=>Number(u.id)),expected_stock:info.linked.length+info.loose.length});changed=true;}
+    if(info.loose.length){await rpc("ao_suite_link_stock",{product_key:p.id,unit_keys:info.loose.map(u=>Number(u.id)),expected_stock:info.actualLinked+info.loose.length});changed=true;}
     if(info.extra>0){
       if(info.extra>1000)throw Error(`«${p.data.name}» tiene más de 1000 unidades: actívalo en Mi web con «Modificar stock» (1000) y luego «Reponer» el resto.`);
-      const current=info.linked.length+info.loose.length;
+      const current=info.actualLinked+info.loose.length;
       await rpc("ao_suite_set_stock",{...core.legacyStockArgs(p,crypto.randomUUID(),today()),target_quantity:current+info.extra,expected_quantity:current});changed=true;
     }
     return changed;
@@ -228,7 +247,7 @@
     e.preventDefault();if(!db||activatingAll)return;activatingAll=true;activationCancelled=false;const button=$("autoStockConfirm"),client=db;button.disabled=true;
     const failed=[];let done=0,legacy=[];
     try{
-      try{await refresh();}catch{}
+      await refresh();
       if(client!==db)return;
       legacy=autoStockSummary().legacy;
       if(!legacy.length){$("autoStockDialog").close();toast("Todos tus productos ya tienen el descuento automático activado.");return;}
@@ -482,5 +501,7 @@
   });
   $("inventoryDialog").addEventListener("close",()=>{if(pickResolve){const resolve=pickResolve;pickResolve=null;resolve(null);}});
   document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click",()=>$(b.dataset.close).close()));
-  window.AOSuite={initialize,refresh,refreshAfterMutation,navigate,logout,pickInventory,openStockGroup,stockProducts:()=>{const ix=stockIndex();return products.map(p=>({id:p.id,name:p.data.name,managed:p.managed,referenceStock:Number(p.reference_stock||0),unregisteredStock:productStock(p,ix).extra,webPrice:Number(p.web_price||0)}));}};
+  window.AOSuite={initialize,refresh,refreshAfterMutation,navigate,logout,pickInventory,openStockGroup,stockStatus:()=>({ready:catalogReady,error:catalogError}),
+    prepareInventoryProduct:async id=>{await refreshAfterMutation();const p=products.find(p=>String(p.id)===String(id));if(!p||!catalogReady||stock(p)<1)throw Error('Este producto ya no tiene stock disponible en tu web.');if(await registerStock(p,productStock(p,stockIndex())))await refreshAfterMutation();},
+    stockProducts:()=>catalogReady?[...publicCatalog.values()].map(row=>{const p=products.find(p=>String(p.id)===String(row.id));return {id:row.id,name:row.name,stock:row.stock,managed:p?.managed===true,webPrice:row.price};}):[]};
 })();

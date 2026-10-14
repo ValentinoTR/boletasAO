@@ -40,7 +40,16 @@
   const activatableProducts=products=>legacyProducts(products).filter(p=>Number(p.reference_stock)<=1000);
   // Registra esa cantidad como unidades reales sin costo; desde entonces cada venta descuenta una unidad.
   const legacyStockArgs=(product,requestKey,date)=>({request_key:requestKey,product_key:product.id,product_name:product.data.name,target_quantity:Number(product.reference_stock||0),expected_quantity:0,cost_per_unit:0,supplier:'Stock inicial (catálogo anterior)',purchased_on:date});
-  const api={cents,optionalCents,legacyProducts,activatableProducts,legacyStockArgs,realCost,allocate,validateParts,repriceParts,available,quantity,productStock,filterStock};
+  function catalogRows(snapshot){
+    if(!snapshot||!Array.isArray(snapshot.productos))throw Error('No se pudo verificar el stock de tu web: respuesta inválida.');
+    const ids=new Set();
+    for(const p of snapshot.productos){
+      if(!p||p.id==null||String(p.id)===''||ids.has(String(p.id))||typeof p.name!=='string'||!p.name.trim()||!Number.isSafeInteger(p.stock)||p.stock<0)throw Error('No se pudo verificar el stock de tu web: producto o cantidad inválidos.');
+      ids.add(String(p.id));
+    }
+    return snapshot.productos;
+  }
+  const api={catalogRows,cents,optionalCents,legacyProducts,activatableProducts,legacyStockArgs,realCost,allocate,validateParts,repriceParts,available,quantity,productStock,filterStock};
   if(typeof window!=='undefined')window.AOSuiteCore=api;
   if(typeof module!=='undefined')module.exports=api;
 })();

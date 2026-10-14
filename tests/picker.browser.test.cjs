@@ -17,7 +17,7 @@ test.before(async()=>{
   browser=await playwright.chromium.launch(executablePath?{executablePath}:{});
 });
 test.after(async()=>{await browser?.close();server?.close();});
-const product=(id,name,reference,managed=false,price=500,brand='')=>({id,data:{name,brand,category:'x',image:''},web_price:price,published:true,managed,reference_stock:reference});
+const product=(id,name,reference,managed=false,price=500,brand='')=>({id,data:{name,brand,category:'amd',image:''},web_price:price,published:true,managed,reference_stock:reference});
 const unit=(id,compra,name,productId=null,extra={})=>({id,compra_id:compra,product_id:productId,nombre:name,costo:null,precio_venta:null,in_stock:true,...extra});
 const purchase=(id,name,extra={})=>({id,nombre:name,costo:0,moneda:'PEN',tipo_cambio:0,...extra});
 // Base de datos en memoria con el comportamiento de las funciones de stock que usa la app.
@@ -37,7 +37,10 @@ async function open({products,purchases=[],units=[],latency=0}){
         p.managed=true;p.reference_stock=0;return {quantity:a.target_quantity};},
       ao_suite_link_stock(a){for(const id of a.unit_keys)db.COMPONENTES.find(c=>c.id===id).product_id=a.product_key;if(free(a.product_key)!==a.expected_stock)throw Error('El stock cambió durante la vinculación.');db.ao_products.find(p=>p.id===a.product_key).managed=true;return a.expected_stock;}};
     const client={from:t=>({select:()=>({order:()=>({range:async start=>({data:start===0?structuredClone(db[t]||[]):[],error:null})})})}),
-      rpc:async(name,args)=>{window.__rpc.push({name,args});await wait(latency);try{return {data:handlers[name](args),error:null};}catch(e){return {data:null,error:{message:e.message}};}}};
+      rpc:async(name,args)=>{
+        if(name==='ao_catalog_snapshot'&&window.__snapshotFail)return {data:null,error:{message:'No se pudo consultar la web'}};
+        if(name==='ao_catalog_snapshot')return {data:{productos:db.ao_products.filter(p=>p.published).map(p=>({...p.data,id:p.id,price:p.web_price,stock:p.managed?free(p.id):Number(p.reference_stock||0)}))},error:null};
+        window.__rpc.push({name,args});await wait(latency);try{const data=handlers[name](args);if(name==='ao_suite_link_stock'&&window.__loseLinkResponseOnce){window.__loseLinkResponseOnce=false;throw Error('Se perdió la respuesta de vinculación');}return {data,error:null};}catch(e){return {data:null,error:{message:e.message}};}}};
     document.getElementById('loginView').hidden=true;document.getElementById('appView').hidden=false;
     window.__ready=window.AOSuite.initialize(client,{role:'owner'});
   },{products,purchases,units,latency});
@@ -137,6 +140,40 @@ test('Unidades de Compras con el mismo nombre se vinculan; si la web indica más
   assert.match(await s.message(),/te quedará 1/);
   await s.page.click('#inventoryConfirm');
   assert.equal((await s.parts())[0].id,70,'el 5500 usa la unidad importada (conserva su costo)');
+});
+
+test('ASUS TUF B550-PLUS WIFI II conserva la única unidad publicada sin sumar compras sueltas',{skip},async()=>{
+  const name='ASUS TUF B550-PLUS WIFI II';
+  const s=await open({products:[product(1,name,1,false,700,'ASUS')],purchases:[purchase(7,name,{costo:1200})],
+    units:[unit(70,7,name,null,{precio_venta:700}),unit(71,7,name),unit(72,7,name)]});
+  assert.equal(await s.page.evaluate(()=>window.AOSuite.stockProducts().find(p=>p.id===1).stock),1,'la cantidad publicada es la autoridad');
+  await s.pick();
+  assert.deepEqual(await s.rows(),[name+' | 1 en stock']);
+  await s.page.click('[data-sell-product="1"]');await s.added(1);
+  const selected=await s.page.evaluate(()=>window.__db.COMPONENTES.filter(c=>c.product_id===1&&c.precio_venta===null&&c.in_stock!==false));
+  assert.equal(selected.length,1,'activar la venta conserva una unidad, no publica todas las compras sueltas');
+  assert.equal(await s.page.evaluate(()=>window.__db.COMPONENTES.length),3,'conserva las compras históricas sin duplicarlas ni retirarlas');
+  assert.equal(await s.page.evaluate(()=>window.AOSuite.stockProducts().find(p=>p.id===1).stock),1);
+  await s.page.click('#inventoryConfirm');
+  const [part]=await s.parts();
+  assert.equal(part.id,selected[0].id);
+  await s.page.evaluate(async id=>{window.__db.COMPONENTES.find(c=>c.id===id).precio_venta=700;await window.AOSuite.refreshAfterMutation();},part.id);
+  assert.equal(await s.page.evaluate(()=>window.AOSuite.stockProducts().find(p=>p.id===1).stock),0,'al vender la última unidad no reaparece la compra suelta como stock');
+  assert.deepEqual(s.errors,[]);
+});
+
+test('Una ficha con stock compartido no incorpora compras sueltas al seleccionar la unidad publicada',{skip},async()=>{
+  const name='ASUS TUF B550-PLUS WIFI II';
+  const s=await open({products:[product(1,name,0,true,700,'ASUS')],purchases:[purchase(7,name)],
+    units:[unit(70,7,name,1,{precio_venta:700}),unit(71,7,name,1),unit(72,7,name),unit(73,7,name)]});
+  assert.equal(await s.page.evaluate(()=>window.AOSuite.stockProducts().find(p=>p.id===1).stock),1);
+  await s.pick();
+  assert.deepEqual(await s.rows(),[name+' | 1 en stock']);
+  await s.page.click('[data-sell-product="1"]');await s.added(1);
+  assert.deepEqual(await s.page.evaluate(()=>window.__rpc),[],'vender una unidad vinculada no incorpora las compras sueltas');
+  await s.page.click('#inventoryConfirm');
+  assert.equal((await s.parts())[0].id,71);
+  assert.deepEqual(s.errors,[]);
 });
 
 test('Lo de Compras sin producto en la web se vende por nombre, sin tocar unidades vinculadas a otro producto',{skip},async()=>{
@@ -298,5 +335,31 @@ test('Reponer un producto antiguo suma unidades a todo su stock anterior',{skip}
   assert.equal(db.COMPRAS.at(-1).costo,1000);
   const calls=await s.page.evaluate(()=>window.__rpc);
   assert.equal(calls.at(-1).args.expected_quantity,4);assert.equal(calls.at(-1).args.target_quantity,6);
+  assert.deepEqual(s.errors,[]);
+});
+
+
+test('Una consulta pública fallida impide activar stock y conserva las cantidades anteriores',{skip},async()=>{
+  const s=await open({products:[product(1,'Placa B850',4)]});
+  await s.page.evaluate(()=>{document.getElementById('catalogView').hidden=false;});
+  await s.page.click('#activateAutoStock');
+  await s.page.evaluate(()=>{window.__snapshotFail=true;});
+  await s.page.click('#autoStockConfirm');
+  await s.page.waitForFunction(()=>document.getElementById('autoStockMessage').textContent.includes('No se pudo consultar la web'));
+  assert.deepEqual(await s.page.evaluate(()=>window.__rpc),[],'No convertir referencias a cero sin stock verificado');
+  assert.equal(await s.page.evaluate(()=>window.__db.ao_products[0].reference_stock),4);
+  assert.equal(await s.page.evaluate(()=>window.AOSuite.stockStatus().ready),false);
+  assert.match(await s.page.textContent('#catalogSummary'),/sin verificar/);
+});
+
+test('Reintentar una vinculación con respuesta perdida conserva el plan sin duplicar unidades',{skip},async()=>{
+  const s=await open({products:[product(1,'Placa B850',4)],purchases:[purchase(7,'Placa B850',{costo:900})],units:[unit(70,7,'Placa B850',null,{costo:900})]});
+  await s.page.evaluate(()=>{window.__loseLinkResponseOnce=true;window.AOSuite.openStockGroup({productId:1,name:'Placa B850'});});
+  await s.page.click('#stockSave');
+  await s.page.waitForFunction(()=>document.getElementById('stockMessage').textContent.includes('Se perdió la respuesta'));
+  await s.page.click('#stockSave');await s.page.waitForFunction(()=>!document.getElementById('stockDialog').open);
+  const db=await s.page.evaluate(()=>window.__db);
+  assert.equal(db.COMPONENTES.length,4);assert.equal(db.COMPONENTES.find(u=>u.id===70).costo,900);
+  assert.ok(db.COMPONENTES.every(u=>u.product_id===1));
   assert.deepEqual(s.errors,[]);
 });

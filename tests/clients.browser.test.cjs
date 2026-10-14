@@ -30,7 +30,9 @@ async function open({missingFunction=false,denied=false,latency=0,clients=CLIENT
     const db=window.__db={ao_products:[],COMPRAS:[],COMPONENTES:[],ao_clients:clients,ao_sales:[{receipt_id:receipt.id,client_id:'c-con'}],ao_receipts:[receipt],ao_suite_state:[]};
     window.__rpc=[];const wait=ms=>new Promise(r=>setTimeout(r,ms));
     const client={from:t=>({select:()=>({order:()=>({range:async start=>({data:start===0?structuredClone(db[t]||[]):[],error:null})})})}),
-      rpc:async(name,args)=>{window.__rpc.push({name,args});await wait(latency);
+      rpc:async(name,args)=>{
+        if(name==='ao_catalog_snapshot')return {data:{productos:db.ao_products.filter(p=>p.published).map(p=>({...p.data,id:p.id,price:p.web_price,stock:p.managed?db.COMPONENTES.filter(c=>String(c.product_id)===String(p.id)&&c.precio_venta===null&&c.in_stock!==false).length:Number(p.reference_stock||0)}))},error:null};
+        window.__rpc.push({name,args});await wait(latency);
         if(missingFunction)return {data:null,error:{code:'PGRST202',message:'Could not find the function public.ao_suite_delete_client(client_key) in the schema cache'}};
         if(denied)return {data:null,error:{code:'42501',message:'permission denied for function ao_suite_delete_client'}};
         if(db.ao_sales.some(s=>s.client_id===args.client_key))return {data:null,error:{code:'23503',message:'Este cliente tiene 1 boleta(s) emitida(s). Para eliminarlo, primero elimina sus boletas en «Boletas emitidas».'}};

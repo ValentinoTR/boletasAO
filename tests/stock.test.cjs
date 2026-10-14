@@ -23,3 +23,12 @@ test('El costo de compra al sumar stock es opcional y vacío equivale a S/ 0.00'
   assert.equal(core.optionalCents('350'),35000);assert.equal(core.optionalCents('12,5'),1250);
   for(const value of ['-1','abc','1.234'])assert.throws(()=>core.optionalCents(value));
 });
+
+
+test('La consulta de stock público rechaza cantidades inválidas y productos duplicados',()=>{
+  assert.throws(()=>core.catalogRows(null));assert.throws(()=>core.catalogRows({}));
+  const p={id:18,name:'ASUS TUF B550-PLUS WIFI II',stock:1};
+  assert.equal(core.catalogRows({productos:[p]})[0].stock,1);
+  for(const stock of [-1,1.5,null,undefined,'1'])assert.throws(()=>core.catalogRows({productos:[{...p,stock}]}));
+  assert.throws(()=>core.catalogRows({productos:[p,{...p,id:'18'}]}));
+});
