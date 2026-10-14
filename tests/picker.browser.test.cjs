@@ -272,3 +272,31 @@ test('Tras emitir se abre la boleta siguiente sin esperar a la base y un error d
   assert.match(await f.locator('#toast').textContent(),/ya se vendió/,'el error del servidor también aparece como aviso');
   assert.deepEqual(errors,[]);
 });
+
+
+test('Modificar stock conserva unidades de Compras y completa solo el catálogo que falta',{skip},async()=>{
+  const s=await open({products:[product(1,'Placa B850',4)],purchases:[purchase(7,'Placa B850',{costo:900})],units:[unit(70,7,'Placa B850',null,{costo:900})]});
+  await s.page.evaluate(()=>window.AOSuite.openStockGroup({productId:1,name:'Placa B850'}));
+  assert.equal(await s.page.inputValue('#stockQuantity'),'4');
+  assert.deepEqual(await s.page.evaluate(()=>window.__rpc),[],'Abrir el formulario no modifica datos');
+  await s.page.click('#stockSave');await s.page.waitForFunction(()=>!document.getElementById('stockDialog').open);
+  const db=await s.page.evaluate(()=>window.__db);
+  assert.equal(db.COMPONENTES.length,4);assert.equal(db.COMPONENTES.find(u=>u.id===70).costo,900);
+  assert.ok(db.COMPONENTES.every(u=>u.product_id===1));
+  const calls=await s.page.evaluate(()=>window.__rpc);
+  assert.equal(calls.at(-1).args.expected_quantity,4);assert.equal(calls.at(-1).args.target_quantity,4);
+  assert.deepEqual(s.errors,[]);
+});
+
+test('Reponer un producto antiguo suma unidades a todo su stock anterior',{skip},async()=>{
+  const s=await open({products:[product(1,'Placa B850',4)],purchases:[purchase(7,'Placa B850',{costo:900})],units:[unit(70,7,'Placa B850',null,{costo:900})]});
+  await s.page.evaluate(()=>window.AOSuite.openStockGroup({productId:1,name:'Placa B850'},true));
+  await s.page.fill('#stockQuantity','2');await s.page.fill('#stockCost','500');
+  await s.page.click('#stockSave');await s.page.waitForFunction(()=>!document.getElementById('stockDialog').open);
+  const db=await s.page.evaluate(()=>window.__db);
+  assert.equal(db.COMPONENTES.length,6);assert.equal(db.COMPONENTES.find(u=>u.id===70).costo,900);
+  assert.equal(db.COMPRAS.at(-1).costo,1000);
+  const calls=await s.page.evaluate(()=>window.__rpc);
+  assert.equal(calls.at(-1).args.expected_quantity,4);assert.equal(calls.at(-1).args.target_quantity,6);
+  assert.deepEqual(s.errors,[]);
+});

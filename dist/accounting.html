@@ -1429,13 +1429,13 @@ function comboDerived(combo){
   });
 
   const recuperado = derivedComps.reduce((s,c) => s + (c.sale !== null ? c.sale : 0), 0);
-  // Ganancia neta REALIZADA: solo lo que ya se vendió contra lo que costó
-  // esa pieza puntual. No se descuenta el costo de lo que sigue en stock.
-  const ganancia = derivedComps.reduce((s,c) => s + (c.ganancia !== null ? c.ganancia : 0), 0);
+  // En Compras, el resultado del combo se cierra solo al vender todas sus piezas.
+  const finalizado = derivedComps.length > 0 && derivedComps.every(c => c.sale !== null);
+  const ganancia = finalizado ? Math.round((recuperado - costoReal) * 100) / 100 : null;
   // Plata todavía metida en piezas de este combo que no se han vendido.
   const stockValor = derivedComps.reduce((s,c) => s + (c.sale === null && c.inStock ? c.costoFinal : 0), 0);
 
-  return { costoReal, comps: derivedComps, recuperado, ganancia, stockValor };
+  return { costoReal, comps: derivedComps, recuperado, ganancia, stockValor, finalizado };
 }
 
 function getAllComponentsFlat(){
@@ -1543,7 +1543,7 @@ function renderCompras(){
   container.innerHTML = items.map(({ c, idx, der }) => {
     const recuperadoCombo = der.recuperado;
     const gananciaCombo = der.ganancia;
-    const margenCombo = recuperadoCombo > 0 ? (gananciaCombo / recuperadoCombo) * 100 : null;
+    const margenCombo = der.finalizado && recuperadoCombo > 0 ? (gananciaCombo / recuperadoCombo) * 100 : null;
     const vendidos = der.comps.filter(x => x.sale !== null).length;
     const pct = der.costoReal > 0 ? Math.min(100, (recuperadoCombo / der.costoReal) * 100) : (recuperadoCombo > 0 ? 100 : 0);
     const collapsed = collapsedCombos.has(c.id);
@@ -1565,7 +1565,9 @@ function renderCompras(){
       : `<div class="table-wrap"><table class="data-table comp-table">
           <thead><tr><th>Componente</th><th class="hide-sm">Estado</th><th class="num">Costo</th><th class="num">Venta</th><th class="num">Ganancia</th><th class="num"><span class="sr-only">Acciones</span></th></tr></thead>
           <tbody>${der.comps.map(comp => {
-            const gananciaHtml = comp.sale !== null
+            const gananciaHtml = !der.finalizado
+              ? '<span class="muted">Pendiente</span>'
+              : comp.sale !== null
               ? `<div class="${moneyClass(comp.ganancia)}">${fmtSigned(comp.ganancia)}</div><div class="sub">${fmtPct(comp.margen)}</div>`
               : '<span class="muted">—</span>';
             return `
@@ -1610,8 +1612,8 @@ function renderCompras(){
           </div>
           <div class="combo-stat">
             <div class="combo-stat-label">Ganancia neta</div>
-            <div class="combo-stat-value ${moneyClass(gananciaCombo)}">${fmtSigned(gananciaCombo)}</div>
-            <div class="combo-stat-sub">${margenCombo !== null ? 'margen ' + fmtPct(margenCombo) : (der.stockValor > 0 ? fmt(der.stockValor) + ' en stock' : '&nbsp;')}</div>
+            <div class="combo-stat-value ${der.finalizado ? moneyClass(gananciaCombo) : ''}">${der.finalizado ? fmtSigned(gananciaCombo) : 'Pendiente'}</div>
+            <div class="combo-stat-sub">${!der.finalizado ? 'Hasta vender todos los componentes' : margenCombo !== null ? 'margen ' + fmtPct(margenCombo) : (der.stockValor > 0 ? fmt(der.stockValor) + ' en stock' : '&nbsp;')}</div>
           </div>
         </div>
         <div class="combo-actions">
@@ -2372,16 +2374,20 @@ let inventoryMode='available';
 function stockProducts(){return window.parent.AOSuite?.stockProducts?.()||[];}
 function getInventoryGroups(){
   const map=new Map(),products=stockProducts();
-  products.forEach(p=>map.set('p:'+p.id,{name:p.name,productId:p.id,items:[]}));
+  const nameKey=name=>String(name||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLocaleLowerCase('es').replace(/\s+/g,' ');
+  const owners=new Map();
+  [...products].sort((a,b)=>Number(!!b.managed)-Number(!!a.managed)).forEach(p=>{if(!owners.has(nameKey(p.name)))owners.set(nameKey(p.name),p);});
+  products.forEach(p=>map.set('p:'+p.id,{name:p.name,productId:p.id,extra:p.unregisteredStock||0,webPrice:p.webPrice,items:[]}));
   combos.forEach(combo=>comboDerived(combo).comps.forEach(comp=>{
-    const key=comp.productId?'p:'+comp.productId:'n:'+comp.name.trim().toLowerCase();
-    if(!map.has(key))map.set(key,{name:products.find(p=>String(p.id)===String(comp.productId))?.name||comp.name.trim(),productId:comp.productId||null,items:[]});
-    if(comp.sale===null&&comp.inStock)map.get(key).items.push({comboId:combo.id,compId:comp.id,costo:comp.costoFinal,estimado:comp.estimado,sugerido:comp.sugerido});
+    const product=products.find(p=>String(p.id)===String(comp.productId))||owners.get(nameKey(comp.name));
+    const key=product?'p:'+product.id:comp.productId?'p:'+comp.productId:'n:'+nameKey(comp.name);
+    if(!map.has(key))map.set(key,{name:comp.name.trim(),productId:comp.productId||null,extra:0,items:[]});
+    if(comp.sale===null&&comp.inStock&&combo.proveedor!=='Venta sin stock')map.get(key).items.push({comboId:combo.id,compId:comp.id,costo:comp.costoFinal,estimado:comp.estimado,sugerido:comp.sugerido});
   }));
   return Array.from(map.values()).map(g=>{
-    const stock=g.items.length,costoTotal=g.items.reduce((s,i)=>s+i.costo,0),costoProm=stock?costoTotal/stock:null;
+    const stock=g.items.length+g.extra,costoTotal=g.items.reduce((s,i)=>s+i.costo,0),costoProm=stock&&!g.extra?costoTotal/stock:null;
     const prices=g.items.map(i=>i.sugerido).filter(v=>v!==null),ventaProm=prices.length?prices.reduce((s,v)=>s+v,0)/prices.length:null;
-    return {...g,stock,costoTotal,costoProm,ventaProm,ganancia:ventaProm!==null?(ventaProm-costoProm)*stock:null,algunoEstimado:g.items.some(i=>i.estimado)};
+    return {...g,stock,costoTotal,costoProm,ventaProm,ganancia:ventaProm!==null&&costoProm!==null?(ventaProm-costoProm)*stock:null,algunoEstimado:g.items.some(i=>i.estimado)};
   }).sort((a,b)=>a.name.localeCompare(b.name));
 }
 function renderInventario(){
@@ -2393,7 +2399,7 @@ function renderInventario(){
   document.getElementById('inv-valor').textContent=fmt(available.reduce((n,g)=>n+g.costoTotal,0));
   document.getElementById('inv-proyectada').textContent=fmtSigned(available.reduce((n,g)=>n+(g.ganancia||0),0));
   const body=document.querySelector('#tabla-inventario tbody');
-  body.innerHTML=groups.length?groups.map((g,i)=>`<tr><td><div class="strong">${escapeHtml(g.name)}</div></td><td class="num"><span class="badge ${g.stock?'neutral':'pendiente'}">${g.stock||'Para reponer'}</span></td><td class="num">${g.costoProm!==null?fmt(g.costoProm):'—'}</td><td class="num">${g.ventaProm!==null?fmt(g.ventaProm):'—'}</td><td class="num ${moneyClass(g.ganancia)}">${g.ganancia!==null?fmtSigned(g.ganancia):'—'}</td><td><div class="row-actions"><button class="btn btn-secondary btn-sm inv-stock" data-idx="${i}">Modificar stock</button><button class="btn btn-soft btn-sm inv-restock" data-idx="${i}">Reponer</button>${g.stock?`<button class="btn btn-secondary btn-sm inv-edit" data-idx="${i}">Precio sugerido</button><button class="btn btn-soft btn-sm inv-vender" data-idx="${i}">Vender</button>`:''}</div></td></tr>`).join(''):emptyRow(6,'package',inventoryMode==='replenish'?'No hay productos para reponer':'No hay unidades disponibles','Registra una compra o repón un producto existente.');
+  body.innerHTML=groups.length?groups.map((g,i)=>`<tr><td><div class="strong">${escapeHtml(g.name)}</div>${g.extra?`<div class="sub">${g.extra} del catálogo anterior · costo pendiente</div>`:''}</td><td class="num"><span class="badge ${g.stock?'neutral':'pendiente'}">${g.stock||'Para reponer'}</span></td><td class="num">${g.costoProm!==null?fmt(g.costoProm):'—'}</td><td class="num">${g.ventaProm!==null?fmt(g.ventaProm):'—'}</td><td class="num ${moneyClass(g.ganancia)}">${g.ganancia!==null?fmtSigned(g.ganancia):'—'}</td><td><div class="row-actions"><button class="btn btn-secondary btn-sm inv-stock" data-idx="${i}">Modificar stock</button><button class="btn btn-soft btn-sm inv-restock" data-idx="${i}">Reponer</button>${g.items.length?`<button class="btn btn-secondary btn-sm inv-edit" data-idx="${i}">Precio sugerido</button><button class="btn btn-soft btn-sm inv-vender" data-idx="${i}">Vender</button>`:''}</div></td></tr>`).join(''):emptyRow(6,'package',inventoryMode==='replenish'?'No hay productos para reponer':'No hay unidades disponibles','Registra una compra o repón un producto existente.');
   body.querySelectorAll('.inv-stock,.inv-restock').forEach(b=>b.addEventListener('click',()=>window.parent.AOSuite?.openStockGroup(lastInventoryGroups[Number(b.dataset.idx)],b.classList.contains('inv-restock'))));
   body.querySelectorAll('.inv-edit,.inv-vender').forEach(b=>b.addEventListener('click',()=>{const g=lastInventoryGroups[Number(b.dataset.idx)];b.classList.contains('inv-edit')?inventarioEditar(g.name,g.productId):inventarioRegistrarVenta(g.name,g.productId);}));
 }
