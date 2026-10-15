@@ -56,7 +56,7 @@ function cleanPart(p){
  if(!name||cents===null)return null;
  const part={source:p.source,name,price:(cents/100).toFixed(2)};
  if(p.source==='product'){const id=cleanText(p.productId).trim().slice(0,64);if(!id)return null;part.productId=id;}
- if(p.source==='loose'){const key=cleanText(p.key).slice(0,200);if(!key.trim())return null;part.key=key;}
+ if(p.source==='loose'){const key=cleanText(p.key).slice(0,350);if(!key.trim())return null;part.key=key;}
  return part;
 }
 const validId=id=>typeof id==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);

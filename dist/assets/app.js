@@ -43,7 +43,7 @@
       $("userName").textContent = member.display_name; $("accountEmail").textContent = user.email; $("teamNav").hidden = member.role !== "owner";
       $("loginView").hidden = true; $("loginThemeToggle").hidden = true; $("appView").hidden = false; $("loginPassword").value = "";
       if (!$("receiptFrame").getAttribute("src")) $("receiptFrame").src = "boletas.html";
-      await window.AOSuite.initialize(client,member); window.AOQuotes?.initialize(client,member); const initialView=new URLSearchParams(location.search).get("vista"); await showView(["catalog","compras","inventario","editor","clients","ventas","quotes"].includes(initialView)?initialView:"dashboard");
+      window.AOQuotes?.initialize(client,member); await window.AOSuite.initialize(client,member); const initialView=new URLSearchParams(location.search).get("vista"); await showView(["catalog","compras","inventario","editor","clients","ventas","quotes"].includes(initialView)?initialView:"dashboard");
     } catch (error) { if (generation === authGeneration) message("entryMessage", errorText(error)); }
     finally { initializing = false; }
   }

@@ -84,6 +84,11 @@ function mockSupabase(){
     if(fail)return {data:null,error:fail,count:null};
     if(!db[q.table])return {data:null,error:{code:'PGRST205',message:`Could not find the table 'public.${q.table}' in the schema cache`},count:null};
     const rows=db[q.table],match=r=>q.filters.every(f=>f(r));let out;
+    // Como el disparador de database/quotes.sql: la cotización de una boleta emitida (no eliminada) no cambia.
+    if(q.table==='ao_quotes'&&(q.op==='update'||q.op==='upsert')){
+      const targets=q.op==='update'?rows.filter(match):rows.filter(r=>r.id===q.payload.id);
+      if(targets.some(r=>r.receipt_id&&db.ao_receipts.some(x=>x.id===r.receipt_id&&!x.deleted_at)))return {data:null,error:{code:'P0001',message:'Esta cotización ya se convirtió en una boleta emitida y no se puede modificar. Para cambiar precios, duplícala.'},count:null};
+    }
     if(q.op==='select'){out=rows.filter(match);if(q.range)out=out.slice(q.range[0],q.range[1]+1);}
     else if(q.op==='upsert'){const p=q.payload,i=rows.findIndex(r=>r.id===p.id);
       if(i>=0){rows[i]={...rows[i],...p,updated_at:now()};out=[rows[i]];}
@@ -328,6 +333,41 @@ test('«Abrir la boleta»: si falla el vínculo no abre nada; si se conserva el 
   assert.equal(received.receipt.items.length,2);
   await s.page.waitForFunction(id=>window.__db.ao_quotes.find(q=>q.id===id).receipt_id===null,qid(12));
   assert.deepEqual((await s.calls(c=>c.op==='update')).map(c=>c.payload.receipt_id===null?'null':'uuid'),['uuid','uuid','null']);
+  // Si la boleta no puede recibir la venta (por ejemplo, se está emitiendo otra), se avisa y también se desvincula.
+  await frame.evaluate(()=>{window.loadQuoteSale=()=>{throw Error('Espera a que termine de emitirse la boleta actual e inténtalo otra vez.');};});
+  await s.page.click('[data-view="quotes"]');await s.action(12,'convert');await checked(s.page);await s.page.click('#convertQuoteConfirm');
+  await s.page.waitForFunction(()=>document.getElementById('globalMessage').textContent==='Espera a que termine de emitirse la boleta actual e inténtalo otra vez.');
+  await s.page.waitForFunction(()=>window.__calls.filter(c=>c.op==='update').length===5);
+  assert.equal((await s.db('ao_quotes')).find(q=>q.number===12).receipt_id,null);
+  assert.deepEqual(s.errors,[]);await s.close();
+});
+
+test('Si la revisión del stock falla se puede volver a revisar; una cotización ya emitida no se convierte dos veces',{skip},async()=>{
+  const s=await open();
+  // prepareQuoteSale lanza un error (p. ej. el stock de la web no cargó): se muestra en el diálogo y se puede reintentar.
+  await s.page.evaluate(()=>{window.__realPrepare=window.AOSuite.prepareQuoteSale;window.AOSuite.prepareQuoteSale=async()=>{throw Error('Actualiza el stock de tu web e inténtalo otra vez.');};});
+  await s.action(16,'convert');await checked(s.page);
+  assert.equal(await s.page.textContent('#convertQuoteMessage'),'Actualiza el stock de tu web e inténtalo otra vez.');
+  assert.equal(await s.page.textContent('#convertQuoteConfirm'),'Volver a revisar');assert.equal(await s.page.innerText('#convertQuoteResult'),'');
+  await s.page.evaluate(()=>{window.AOSuite.prepareQuoteSale=window.__realPrepare;});
+  await s.page.click('#convertQuoteConfirm');
+  await s.page.waitForFunction(()=>/Todo está en tu stock/.test(document.getElementById('convertQuoteResult').innerText));
+  assert.equal(await s.page.textContent('#convertQuoteMessage'),'');assert.equal(await s.page.textContent('#convertQuoteConfirm'),'Abrir la boleta');
+  assert.equal((await s.calls(c=>c.op==='update')).length,0,'revisar no escribe nada');
+  // Mientras tanto otra persona emitió la boleta de esta cotización: la base rechaza el vínculo y la lista se actualiza.
+  await s.page.evaluate(({id,receipt})=>{const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Lima'}).format(new Date());window.__db.ao_quotes.find(q=>q.id===id).receipt_id=receipt;
+    window.__db.ao_receipts.unshift({id:receipt,series:'B001',number:'130',date:today,customer:'Jorge Ramírez Ortiz',total_cents:129000,deleted_at:null,payload:{}});},{id:qid(16),receipt:'00000000-0000-4000-8000-000000000003'});
+  await s.page.click('#convertQuoteConfirm');
+  await s.page.waitForFunction(()=>/ya se convirtió en una boleta emitida/.test(document.getElementById('convertQuoteMessage').textContent));
+  assert.equal(await s.page.isVisible('#quotesView'),true,'no abre otra boleta');
+  assert.equal(await s.page.isEnabled('#convertQuoteCancel'),true);
+  await s.page.waitForFunction(id=>document.querySelector(`#quotesRows tr[data-id="${id}"]`)?.dataset.status==='converted',qid(16));
+  assert.equal((await s.db('ao_quotes')).find(q=>q.number===16).receipt_id,'00000000-0000-4000-8000-000000000003','conserva su boleta');
+  await s.page.click('#convertQuoteCancel');
+  assert.match((await s.rows()).find(r=>r.startsWith('COT-00016')),/Boleta B001-130$/);
+  // Guardarla encima tampoco: el editor recibe el mensaje de la base.
+  await assert.rejects(s.page.evaluate(id=>window.AOQuoteHost.save({version:1,date:'2026-10-14',validDays:7,validUntil:'2026-10-21',customer:'X',items:[{description:'a',quantity:'1',price:'1'}]},id),qid(16)),/ya se convirtió en boleta/);
+  assert.equal(await s.page.isHidden('#globalMessage'),true);
   assert.deepEqual(s.errors,[]);await s.close();
 });
 
@@ -448,5 +488,9 @@ test('Capturas de pantalla (QUOTES_SHOTS)',{skip:skip||(!process.env.QUOTES_SHOT
     await s.close();
     const db=seed();db.ao_quotes=[];const e=await open({theme,width,height,db});await e.shot('empty-'+tag);await e.close();
     const m=await open({theme,width,height,missing:true});await m.shot('missing-'+tag);await m.close();
+    // El editor real dentro del panel (iframe #quoteFrame), con una cotización guardada.
+    const r=await open({theme,width,height,editor:'real'});await r.action(18,'open');
+    await r.page.waitForFunction(()=>/COT-00018/.test(document.getElementById('quoteFrame').contentDocument?.getElementById('quoteTitle')?.textContent||''));
+    await r.page.waitForTimeout(600);await r.shot('editor-'+tag);await r.close();
   }
 });

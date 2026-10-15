@@ -21,6 +21,8 @@
   // La tabla aún no existe: falta ejecutar database/quotes.sql en Supabase.
   const isMissing = error => ["PGRST205", "42P01"].includes(error?.code) || /could not find the table|does not exist/i.test(error?.message || "");
   const app = () => window.AOApp, message = text => app()?.globalMessage(text);
+  // Al pasar a un editor (iframe) desde abajo de la lista, se empieza desde arriba.
+  const goTo = async name => { await app()?.showView(name); window.scrollTo(0, 0); };
   let db = null, member = null, generation = 0, ticket = 0, rows = [], receipts = new Map(), state = "idle", loadError = "", filter = "all";
   let pendingOpen = null, editorReady = false, deleteState = null, convertState = null, toastTimer;
   function toast(text) { const box = $("suiteToast"); box.textContent = text; box.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => box.hidden = true, 6500); }
@@ -128,7 +130,7 @@
     if (state === "missing") { await app()?.showView("quotes"); return false; }
     // Se guarda la orden hasta que el editor avise que está listo (frameReady).
     pendingOpen = { row: row ? editorRow(row) : null, options: { duplicate: options?.duplicate === true } };
-    await app()?.showView("quoteEditor");
+    await goTo("quoteEditor");
     const frame = $("quoteFrame");
     if (!frame.getAttribute("src")) { editorReady = false; frame.src = "cotizacion.html"; } else flushEditor();
     return true;
@@ -182,7 +184,7 @@
     if (!receipt) { await load(); row = rows.find(r => r.id === id); receipt = row && statusOf(row).receipt; }
     if (!receipt) throw Error("La boleta de esta cotización ya no existe. Revisa «Boletas emitidas».");
     const current = generation;
-    await app()?.showView("editor");
+    await goTo("editor");
     const frame = await receiptWindow("loadCloudReceipt");
     if (current === generation) frame.loadCloudReceipt(receipt.payload, receipt.id);
   }
@@ -264,14 +266,16 @@
     } catch (error) {
       target.busy = false;
       if (convertState === target) { convertControls(false); $("convertQuoteConfirm").disabled = false; $("convertQuoteConfirm").textContent = "Abrir la boleta"; $("convertQuoteMessage").textContent = errorText(error); }
+      // Si otra persona ya emitió su boleta, la lista lo muestra al actualizarse (la base no permite una segunda boleta).
+      if (target.generation === generation) load().catch(() => {});
       return;
     }
     target.busy = false;
     if (target.generation !== generation) return;
     row.receipt_id = receiptId;
-    const quote = row.quote || {}, receipt = { customer: quote.customer ?? row.customer, docType: quote.docType, document: quote.document ?? row.document, address: quote.address || "", email: quote.email || "", items: structuredClone(result.items) };
+    const quote = row.quote || {}, doc = String(quote.document ?? row.document ?? "").trim(), receipt = { customer: quote.customer ?? row.customer, docType: doc ? quote.docType : "NONE", document: doc, address: quote.address || "", email: quote.email || "", items: structuredClone(result.items) };
     if (convertState === target) closeConvert();
-    await app()?.showView("editor");
+    await goTo("editor");
     let accepted;
     try { const frame = await receiptWindow("loadQuoteSale"); if (target.generation !== generation) return; accepted = frame.loadQuoteSale(receipt, receiptId, name); }
     catch (error) { unlink(row, receiptId, previous); message(errorText(error)); return; }
