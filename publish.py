@@ -11,7 +11,7 @@ import hashlib, re, shutil
 
 ROOT = Path(__file__).resolve().parent
 DIST = ROOT / 'dist'
-PAGES = ['index.html', 'boletas.html', 'accounting.html']
+PAGES = ['index.html', 'boletas.html', 'accounting.html', 'cotizacion.html']
 REFERENCE = re.compile(r'''((?:src|href)=["'])(assets/[^"'?]+)(?:\?[^"']*)?(["'])''')
 
 def version(asset):

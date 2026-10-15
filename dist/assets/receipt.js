@@ -202,6 +202,22 @@ function lockIssuedFields(){
 }
 async function refreshCloudNumber(){if(viewingIssued)return false;const series=data.series.toUpperCase();if(!/^[A-Z0-9]{1,8}$/.test(series))return false;try{const n=await cloud.nextNumber(series);if(!viewingIssued&&data.series.toUpperCase()===series){data.number=String(n);$('number').value=data.number;update();saveDraft();return true;}}catch(e){toast('El número definitivo se asignará al exportar.');}return false;}
 window.loadCloudReceipt=(receipt,id)=>{if(!viewingIssued&&hasContent()&&!confirm('¿Abrir esta boleta y reemplazar el borrador actual?'))return;data=normalizeData(receipt);cloudReceiptId=id;viewingIssued=true;autoAdvanceId=null;resetErrors();hydrate();saveDraft();toast('Boleta guardada. Puedes descargar el PDF o enviar su correo.');};
+// Venta preparada desde una cotización: borrador nuevo con su cliente y sus productos ya vinculados al stock.
+// receiptId es el identificador con el que se emitirá (la cotización lo guarda para mostrarse como convertida).
+window.loadQuoteSale=(receipt,receiptId,label)=>{
+ label=String(label??'').trim();
+ if(!receipt||typeof receipt!=='object'||typeof receiptId!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(receiptId))throw Error('La venta de la cotización no es válida.');
+ if(exporting)throw Error('Espera a que termine de emitirse la boleta actual e inténtalo otra vez.');
+ const incoming=normalizeData({version:VERSION,customer:receipt.customer,docType:receipt.docType,document:receipt.document,address:receipt.address,email:receipt.email,items:receipt.items});
+ if(!viewingIssued&&hasContent()&&!confirm('¿Reemplazar el borrador actual por la venta de la cotización '+label+'?'))return false;
+ // Si se estaba viendo una boleta emitida, mientras se consulta el número se muestra el siguiente.
+ const number=viewingIssued&&/^\d{1,10}$/.test(data.number)?String(Number(data.number)+1):data.number;
+ data={...emptyReceipt(number,data.series.toUpperCase(),data.observations),customer:incoming.customer,docType:incoming.docType,document:incoming.docType==='NONE'?'':incoming.document,address:incoming.address,email:incoming.email,items:incoming.items};
+ cloudReceiptId=receiptId;viewingIssued=false;autoAdvanceId=null;
+ resetErrors();hydrate();saveDraft();refreshCloudNumber();
+ toast('Venta de la cotización '+label+' lista. Revisa los datos y pulsa «Emitir y descargar».');
+ return true;
+};
 refreshCloudNumber();
 
 

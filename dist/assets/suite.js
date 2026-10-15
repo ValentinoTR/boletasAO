@@ -57,7 +57,7 @@
     $("catalogGrid").replaceChildren();$("clientList").replaceChildren();$("oldPassword").value="";
   }
   function navigate(name) {
-    const titles={dashboard:"Resumen del negocio",compras:"Compras y costos",inventario:"Inventario disponible",ventas:"Ventas y ganancias",catalog:"Productos de mi web",clients:"Clientes",editor:"Nueva boleta",history:"Boletas emitidas",team:"Mi equipo",account:"Mi cuenta",connection:"Conexión inicial"};
+    const titles={dashboard:"Resumen del negocio",compras:"Compras y costos",inventario:"Inventario disponible",ventas:"Ventas y ganancias",catalog:"Productos de mi web",clients:"Clientes",editor:"Nueva boleta",history:"Boletas emitidas",team:"Mi equipo",account:"Mi cuenta",connection:"Conexión inicial",quotes:"Cotizaciones",quoteEditor:"Cotización"};
     $("suiteHeading").textContent=titles[name]||"AO Nexus Central";
     if(["dashboard","compras","inventario","ventas"].includes(name)){desiredView=name==="ventas"?"historial":name;$("accountingFrame").contentWindow?.navigateFromSuite?.(desiredView);}
     if(["catalog","clients","connection","inventario"].includes(name))refresh().catch(()=>{});
@@ -367,12 +367,21 @@
       await refresh();$("accountingFrame").contentWindow?.refreshFromSuite?.();$("importMessage").textContent=`Se incorporaron ${imported.compras} compras y ${imported.componentes} unidades. Abre Mi web para vincular el stock de cada producto.`;$("importMessage").classList.add("success");
     }catch(error){report("importMessage",error);}finally{password="";await old.auth.signOut().catch(()=>{});button.disabled=false;}
   });
-  async function pickInventory(item,index) {
+  // El mismo buscador sirve a la cotización ({mode:"quote"}): elige referencias (producto, nombre o a pedido), nunca unidades,
+  // así que no aparta ni descuenta stock. Los textos del diálogo cambian según quién lo abre.
+  let quoting=false;
+  const PICKER_TEXT_IDS=["inventoryEyebrow","inventoryTitle","inventoryHint","externalSummary","externalHint","inventorySelectedTitle","addExternal","inventoryConfirm"];
+  const QUOTE_TEXTS={inventoryEyebrow:"PRODUCTOS DE LA COTIZACIÓN",inventoryTitle:"Productos que cotizas",inventoryHint:"Elige de tu stock lo que cotizas. La cotización no aparta ni descuenta stock: tu stock baja recién al emitir la boleta.",externalSummary:"¿No está en tu stock? Cotizar un producto a pedido",externalHint:"Solo necesitas el nombre y el precio. No cambia tu stock.",inventorySelectedTitle:"Productos de esta cotización",addExternal:"Agregar a esta cotización",inventoryConfirm:"Usar en la cotización"};
+  // Para la boleta se restaura el contenido original del diálogo tal cual (index.html).
+  const BOLETA_TEXTS=Object.fromEntries(PICKER_TEXT_IDS.map(id=>[id,$(id)?.innerHTML]));
+  function pickerTexts(){for(const id of PICKER_TEXT_IDS){const el=$(id);if(!el)continue;if(quoting)el.textContent=QUOTE_TEXTS[id];else if(el.innerHTML!==BOLETA_TEXTS[id])el.innerHTML=BOLETA_TEXTS[id];}}
+  async function pickInventory(item,index,options) {
     await refresh();if(pickResolve)throw Error("Ya hay una selección de stock abierta.");
-    blockedIds=new Set(($("receiptFrame").contentWindow?.getInventoryIdsExcept?.(index)||[]).map(String));
-    picking=structuredClone(item.inventory||[]);$("inventorySearch").value="";$("inventoryMessage").textContent="";externalConfirmedName="";
+    quoting=options?.mode==="quote";
+    blockedIds=quoting?new Set():new Set(($("receiptFrame").contentWindow?.getInventoryIdsExcept?.(index)||[]).map(String));
+    picking=quoting?(Array.isArray(item?.parts)?structuredClone(item.parts):[]).filter(p=>p&&typeof p==="object"):structuredClone(item.inventory||[]);$("inventorySearch").value="";$("inventoryMessage").textContent="";externalConfirmedName="";
     for(const id of ["externalName","externalPrice"])$(id).value="";$("externalBox").open=false;
-    renderPicker();$("inventoryDialog").showModal();return new Promise(resolve=>{pickResolve=resolve;});
+    pickerTexts();renderPicker();$("inventoryDialog").showModal();return new Promise(resolve=>{pickResolve=resolve;});
   }
   // Unidades que aún se pueden elegir en esta venta (no vendidas, ni en otra línea de la boleta, ni ya elegidas aquí).
   const freeUnit=u=>available(u)&&!blockedIds.has(String(u.id))&&!picking.some(x=>x.source==="stock"&&String(x.id)===String(u.id));
@@ -394,19 +403,34 @@
   }
   function renderPicker() {
     const term=$("inventorySearch").value.trim(),ix=stockIndex(),rows=stockRows(term,ix);
-    $("inventoryUnits").innerHTML=rows.map(r=>`<div class="unit-row catalogue-row"><span><strong>${esc(r.name)}</strong><small>${r.n} en stock</small></span><strong>${r.price>0?money(r.price):""}</strong><button type="button" class="secondary" ${r.kind==="product"?`data-sell-product="${esc(r.id)}"`:`data-sell-loose="${esc(r.key)}"`} aria-label="Agregar ${esc(r.name)} a esta venta">Agregar</button></div>`).join("")||`<p class="empty">${term?`No tienes «${esc(term)}» en stock.`:"No tienes productos en stock."}</p>`;
+    $("inventoryUnits").innerHTML=rows.map(r=>`<div class="unit-row catalogue-row"><span><strong>${esc(r.name)}</strong><small>${r.n} en stock${quoting?quotedNote(r):""}</small></span><strong>${r.price>0?money(r.price):""}</strong><button type="button" class="secondary" ${r.kind==="product"?`data-sell-product="${esc(r.id)}"`:`data-sell-loose="${esc(r.key)}"`} aria-label="Agregar ${esc(r.name)} a esta ${quoting?"cotización":"venta"}">Agregar</button></div>`).join("")||`<p class="empty">${term?`No tienes «${esc(term)}» en stock.`:"No tienes productos en stock."}</p>`;
     renderMissing(term,ix,rows.length>0);
-    $("inventorySelected").innerHTML=picking.map((p,i)=>`<div class="selected-part"><div><strong>${esc(p.name)}</strong><small>${partGone(p)?"ya no está disponible (se vendió o se retiró): quítalo":p.source==="stock"?"De tu stock":"No está en tu stock"}</small></div><label>Venta (S/)<input type="number" min="0" step="0.01" value="${esc(p.price)}" data-part-price="${i}" aria-label="Precio de venta de ${esc(p.name)}"></label><button type="button" class="quiet" data-remove-part="${i}" aria-label="Quitar ${esc(p.name)}">✕</button></div>`).join("")||'<p class="empty">Elige arriba lo que entregas al cliente.</p>';
-    if(new Set(picking.map(p=>nameKey(p.name))).size>1)$("inventorySelected").insertAdjacentHTML("beforeend",'<p class="hint">Estos productos se imprimirán juntos en una sola línea («Computadora completa: …»). Para venderlos en líneas separadas, deja aquí uno y usa «Agregar producto» en la boleta para los demás.</p>');
+    $("inventorySelected").innerHTML=picking.map((p,i)=>`<div class="selected-part"><div><strong>${esc(p.name)}</strong><small>${quoting?quoteOrigin(p,ix):partGone(p)?"ya no está disponible (se vendió o se retiró): quítalo":p.source==="stock"?"De tu stock":"No está en tu stock"}</small></div><label>${quoting?"Precio":"Venta"} (S/)<input type="number" min="0" step="0.01" value="${esc(p.price)}" data-part-price="${i}" aria-label="Precio ${quoting?"cotizado":"de venta"} de ${esc(p.name)}"></label><button type="button" class="quiet" data-remove-part="${i}" aria-label="Quitar ${esc(p.name)}">✕</button></div>`).join("")||`<p class="empty">${quoting?"Elige arriba lo que cotizas.":"Elige arriba lo que entregas al cliente."}</p>`;
+    if(new Set(picking.map(p=>nameKey(p.name))).size>1)$("inventorySelected").insertAdjacentHTML("beforeend",quoting?'<p class="hint">Estos productos se cotizarán juntos en una sola línea («Computadora completa: …»). Para cotizarlos en líneas separadas, deja aquí uno y usa «Agregar producto» en la cotización para los demás.</p>':'<p class="hint">Estos productos se imprimirán juntos en una sola línea («Computadora completa: …»). Para venderlos en líneas separadas, deja aquí uno y usa «Agregar producto» en la boleta para los demás.</p>');
     updatePickerTotal();
+  }
+  // Cotización: cuántas veces ya está ese producto en la lista y de dónde sale cada uno.
+  const quotedCount=r=>picking.filter(x=>r.kind==="product"?x.source==="product"&&String(x.productId)===String(r.id):x.source==="loose"&&x.key===r.key).length;
+  const quotedNote=r=>{const n=quotedCount(r);return n?` · ${n} en esta cotización`:"";};
+  // Unidades que tienes de lo que se cotiza (null: a pedido). Lo de Compras cuyo nombre ya tiene ficha usa el stock de esa ficha.
+  function quotedStock(part,ix){
+    if(part.source==="product"){const p=products.find(x=>String(x.id)===String(part.productId));return p?productStock(p,ix).total:0;}
+    if(part.source==="loose"){const owner=ix.ownerByKey.get(part.key);return owner?productStock(owner,ix).total:ix.ownerByKey.has(part.key)?0:(ix.looseByKey.get(part.key)||[]).length;}
+    return null;
+  }
+  function quoteOrigin(p,ix){
+    if(p.source==="product"&&!products.some(x=>String(x.id)===String(p.productId)))return "Ya no está en tu web";
+    if(p.source==="product")return quotedStock(p,ix)?"De tu stock":"Producto de tu web sin stock";
+    if(p.source==="loose")return quotedStock(p,ix)?"De tu stock":"Ya no está en tu stock";
+    return products.some(x=>nameKey(x.data.name)===nameKey(p.name)&&!productStock(x,ix).total)?"Producto de tu web sin stock":"No está en tu stock (a pedido)";
   }
   // Al buscar algo que no tienes: productos de tu web sin stock y lo escrito, para venderlo igual (no cambia tu stock).
   function renderMissing(term,ix,inStock) {
     if(!term){$("inventoryCatalogue").innerHTML="";return;}
     const matching=searchProducts(products,term),out=matching.filter(p=>productStock(p,ix).total===0).slice(0,5);
-    const rows=out.map(p=>`<div class="unit-row catalogue-row"><span><strong>${esc(p.data.name)}</strong><small>Sin stock · venderlo igual no cambia tu stock</small></span><strong>${Number(p.web_price)>0?money(p.web_price):""}</strong><button type="button" class="secondary" data-sell-product="${esc(p.id)}" aria-label="Vender ${esc(p.data.name)} aunque no esté en tu stock">Venderlo igual</button></div>`);
+    const rows=out.map(p=>`<div class="unit-row catalogue-row"><span><strong>${esc(p.data.name)}</strong><small>${quoting?"Sin stock · se cotiza a pedido":"Sin stock · venderlo igual no cambia tu stock"}</small></span><strong>${Number(p.web_price)>0?money(p.web_price):""}</strong><button type="button" class="secondary" data-sell-product="${esc(p.id)}" aria-label="${quoting?"Cotizar":"Vender"} ${esc(p.data.name)} aunque no esté en tu stock">${quoting?"Cotizarlo igual":"Venderlo igual"}</button></div>`);
     // Lo escrito solo se ofrece si no se parece a ningún producto de tu web ni de tu stock.
-    if(!inStock&&!matching.length&&!similarInStock(term,ix).length)rows.push(`<div class="unit-row catalogue-row"><span><strong>«${esc(term)}»</strong><small>No está en tu stock · producto de otra tienda</small></span><button type="button" class="secondary" data-use-other aria-label="Agregar ${esc(term)} como producto de otra tienda">Venderlo igual</button></div>`);
+    if(!inStock&&!matching.length&&!similarInStock(term,ix).length)rows.push(`<div class="unit-row catalogue-row"><span><strong>«${esc(term)}»</strong><small>No está en tu stock · producto ${quoting?"a pedido":"de otra tienda"}</small></span><button type="button" class="secondary" data-use-other aria-label="Agregar ${esc(term)} como producto ${quoting?"a pedido":"de otra tienda"}">${quoting?"Cotizarlo igual":"Venderlo igual"}</button></div>`);
     $("inventoryCatalogue").innerHTML=rows.length?`<h3 class="stock-title">No está en tu stock</h3><div class="unit-list">${rows.join("")}</div>`:"";
   }
   function pickedOk(text) {
@@ -463,10 +487,37 @@
     pickedOk(`«${list[0].nombre.trim()}» agregado. Al emitir la boleta se descuenta de tu stock: ${remainingText(left)}.${price?"":" Escribe su precio en «Venta (S/)»."}`);
     if(!price)document.querySelector(`[data-part-price="${picking.length-1}"]`)?.focus();
   }
+  // Cotización: «Agregar» solo anota la referencia con el precio actual; no registra ni vincula stock (eso se hace al convertirla en boleta).
+  function quotedOk(name,quoted,have,price) {
+    const over=quoted>have,message=$("inventoryMessage");
+    pickedOk(over?`«${name}» agregado. Cotizas ${quoted} y tienes ${have} en stock: al convertirla en boleta te avisaremos.`:`«${name}» agregado a la cotización · tienes ${have} en stock.`);
+    if(over)message.classList.remove("success");
+    if(!price){message.textContent+=" Escribe su precio en «Precio (S/)».";document.querySelector(`[data-part-price="${picking.length-1}"]`)?.focus();}
+  }
+  function quoteProduct(productId) {
+    const p=products.find(x=>String(x.id)===String(productId));
+    if(!p){report("inventoryMessage",Error("El producto ya no existe."));return;}
+    const name=p.data.name,info=productStock(p,stockIndex());
+    if(!info.total){
+      if(Number(p.web_price)>0){picking.push({source:"external",name:name.slice(0,350),price:Number(p.web_price).toFixed(2)});renderPicker();pickedOk(`«${name}» no está en tu stock: se cotiza a pedido a ${money(p.web_price)} (no cambia tu stock).`);}
+      else openExternal(name,`«${name}» no tiene precio en tu web: escribe el precio y pulsa «Agregar a esta cotización».`);
+      return;
+    }
+    const price=productPrice(p,info);
+    picking.push({source:"product",productId:String(p.id),name:name.slice(0,350),price:price.toFixed(2)});renderPicker();
+    quotedOk(name,quotedCount({kind:"product",id:p.id}),info.total,price);
+  }
+  function quoteLoose(key) {
+    const ix=stockIndex(),list=ix.ownerByKey.has(key)?[]:(ix.looseByKey.get(key)||[]);
+    if(!list.length){report("inventoryMessage",Error("Ya no hay unidades de ese producto en tu stock."));return;}
+    const name=list[0].nombre.trim(),price=Number(list.find(u=>Number(u.precio_sugerido)>0)?.precio_sugerido)||0;
+    picking.push({source:"loose",key,name:name.slice(0,350),price:price.toFixed(2)});renderPicker();
+    quotedOk(name,quotedCount({kind:"loose",key}),list.length,price);
+  }
   for(const id of ["inventoryUnits","inventoryCatalogue"])$(id).addEventListener("click",e=>{
-    const product=e.target.closest("[data-sell-product]");if(product){sellCatalogueProduct(product,product.dataset.sellProduct);return;}
-    const loose=e.target.closest("[data-sell-loose]");if(loose){sellLoose(loose.dataset.sellLoose);return;}
-    if(e.target.closest("[data-use-other]")){const name=$("inventorySearch").value.trim();openExternal(name,`«${name}» está listo abajo: escribe el precio de venta y pulsa «Agregar a esta venta».`);}
+    const product=e.target.closest("[data-sell-product]");if(product){if(quoting)quoteProduct(product.dataset.sellProduct);else sellCatalogueProduct(product,product.dataset.sellProduct);return;}
+    const loose=e.target.closest("[data-sell-loose]");if(loose){if(quoting)quoteLoose(loose.dataset.sellLoose);else sellLoose(loose.dataset.sellLoose);return;}
+    if(e.target.closest("[data-use-other]")){const name=$("inventorySearch").value.trim();openExternal(name,`«${name}» está listo abajo: escribe el precio ${quoting?"":"de venta "}y pulsa «${quoting?"Agregar a esta cotización":"Agregar a esta venta"}».`);}
   });
   function updatePickerTotal() {let n=0,valid=true;for(const p of picking){try{n+=core.cents(p.price);}catch{valid=false;}}$("inventoryTotal").textContent=valid?money(n/100):"Revisa los precios";}
   let searchTimer;
@@ -478,12 +529,13 @@
   function addExternalPart() {
     try{
       const name=$("externalName").value.trim();
-      if(!name)throw Error("Indica el nombre del producto.");if(!$("externalPrice").value.trim())throw Error("Indica el precio al que lo vendes.");
-      const part=noStockPart(name,core.cents($("externalPrice").value)/100);core.validateParts([part]);
+      if(!name)throw Error("Indica el nombre del producto.");if(!$("externalPrice").value.trim())throw Error(quoting?"Indica el precio al que lo cotizas.":"Indica el precio al que lo vendes.");
+      // En la cotización lo que no está en tu stock es solo nombre y precio (a pedido); al convertirla se vende sin stock.
+      const part=quoting?{source:"external",name:name.slice(0,350),price:(core.cents($("externalPrice").value)/100).toFixed(2)}:noStockPart(name,core.cents($("externalPrice").value)/100);if(!quoting)core.validateParts([part]);
       const similar=similarInStock(name,stockIndex());
       if(similar.length&&externalConfirmedName!==nameKey(name)){
         externalConfirmedName=nameKey(name);$("inventorySearch").value=name;renderPicker();
-        throw Error(`Tienes «${similar[0].data.name}» en tu stock. Si es ese, pulsa su «Agregar» en «Mi stock» (arriba) para que la venta lo descuente. Si de verdad es de otra tienda, pulsa «Agregar a esta venta» otra vez.`);
+        throw Error(quoting?`Tienes «${similar[0].data.name}» en tu stock. Si es ese, pulsa su «Agregar» en «Mi stock» (arriba) para cotizarlo de tu stock. Si de verdad es otro producto, pulsa «Agregar a esta cotización» otra vez.`:`Tienes «${similar[0].data.name}» en tu stock. Si es ese, pulsa su «Agregar» en «Mi stock» (arriba) para que la venta lo descuente. Si de verdad es de otra tienda, pulsa «Agregar a esta venta» otra vez.`);
       }
       externalConfirmedName="";picking.push(part);for(const id of ["externalName","externalPrice"])$(id).value="";$("inventoryMessage").textContent="";renderPicker();return true;
     }catch(error){report("inventoryMessage",error);$("externalBox").open=true;return false;}
@@ -493,15 +545,111 @@
   $("inventoryConfirm").addEventListener("click",()=>{
     // Si dejaste escrito un producto de otra tienda (con el apartado abierto) sin pulsar «Agregar a esta venta», se agrega ahora.
     if($("externalBox").open&&["externalName","externalPrice"].some(id=>$(id).value.trim())&&!addExternalPart())return;
+    if(quoting){confirmQuote();return;}
     const gone=picking.find(partGone);
     if(gone){report("inventoryMessage",Error(`«${gone.name}» ya no está disponible (se vendió o se retiró). Quítalo de la lista y elige otro.`));return;}
     const free=picking.findIndex(p=>{try{return core.cents(p.price)===0;}catch{return false;}});
     if(free>=0){report("inventoryMessage",Error(`«${picking[free].name}» no tiene precio de venta: escríbelo en «Venta (S/)».`));document.querySelector(`[data-part-price="${free}"]`)?.focus();return;}
     try{core.validateParts(picking);if(picking.length>500)throw Error("Selecciona hasta 500 componentes.");const selected=structuredClone(picking).map(p=>p.source==="external"?{...p,cost:(core.optionalCents(p.cost)/100).toFixed(2)}:p),resolve=pickResolve;pickResolve=null;$("inventoryDialog").close();resolve(selected);}catch(error){report("inventoryMessage",error);}
   });
+  // La cotización acepta referencias (producto, nombre de Compras o a pedido): se valida nombre y precio de cada una.
+  function confirmQuote() {
+    if(!picking.length){report("inventoryMessage",Error("Elige al menos un producto de «Mi stock» o cotiza uno a pedido."));return;}
+    if(picking.length>500){report("inventoryMessage",Error("Selecciona hasta 500 productos."));return;}
+    const selected=[];
+    for(const [i,p] of picking.entries()){
+      const name=String(p.name??"").trim().slice(0,350);let price;
+      try{price=core.cents(p.price);}catch{price=null;}
+      if(!name||!["product","loose","external"].includes(p.source)||p.source==="product"&&!String(p.productId??"")||p.source==="loose"&&!String(p.key??"")){report("inventoryMessage",Error(`El producto ${i+1} no es válido: quítalo y vuelve a agregarlo.`));return;}
+      if(!price){report("inventoryMessage",Error(price===0?`«${name}» no tiene precio: escríbelo en «Precio (S/)».`:`«${name}»: escribe un precio válido, sin separadores de miles y con hasta dos decimales.`));document.querySelector(`[data-part-price="${i}"]`)?.focus();return;}
+      selected.push(p.source==="product"?{source:"product",productId:String(p.productId),name,price:(price/100).toFixed(2)}:p.source==="loose"?{source:"loose",key:String(p.key),name,price:(price/100).toFixed(2)}:{source:"external",name,price:(price/100).toFixed(2)});
+    }
+    const resolve=pickResolve;pickResolve=null;$("inventoryDialog").close();resolve(structuredClone(selected));
+  }
   $("inventoryDialog").addEventListener("close",()=>{if(pickResolve){const resolve=pickResolve;pickResolve=null;resolve(null);}});
   document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click",()=>$(b.dataset.close).close()));
-  window.AOSuite={initialize,refresh,refreshAfterMutation,navigate,logout,pickInventory,openStockGroup,stockStatus:()=>({ready:catalogReady,error:catalogError}),
+  // ---------- Convertir una cotización en boleta: cada producto cotizado toma una unidad real de tu stock ----------
+  // Las unidades se eligen con available() y las ya tomadas en esta conversión; no dependen de la selección abierta (picking/blockedIds).
+  let preparingQuote=false;
+  const shortText=text=>text.length>60?text.slice(0,57).trimEnd()+"…":text;
+  async function prepareQuoteSale(items) {
+    if(!Array.isArray(items)||!items.length)throw Error("La cotización no tiene productos.");
+    if(pickResolve)throw Error("Cierra la selección de productos que está abierta e inténtalo otra vez.");
+    if(preparingQuote)throw Error("Ya se está revisando tu stock. Espera un momento.");
+    preparingQuote=true;const client=db;
+    try{
+      try{await refreshAfterMutation();}catch{}
+      if(!client||client!==db||!catalogReady)throw Error("Actualiza el stock de tu web e inténtalo otra vez.");
+      const chosen=new Set(),groups=new Map(),registered=new Set(),out=[],notices=[];let ix=stockIndex();
+      const group=(key,name,before)=>{if(!groups.has(key))groups.set(key,{name,before,linked:0});return groups.get(key);};
+      const take=(list,g)=>{const u=list.find(u=>available(u)&&!chosen.has(String(u.id)));if(u){chosen.add(String(u.id));g.linked++;}return u;};
+      async function fromProduct(id,price) {
+        let p=products.find(x=>String(x.id)===String(id));if(!p)return {removed:true};
+        if(!registered.has(String(p.id))){
+          registered.add(String(p.id));
+          // Igual que «Agregar» en la boleta: vincula lo de Compras con su nombre y registra la cantidad del catálogo anterior.
+          if(await registerStock(p,productStock(p,ix))){
+            await refreshAfterMutation();if(client!==db)throw Error("Tu sesión cambió. Vuelve a intentarlo.");
+            ix=stockIndex();$("accountingFrame").contentWindow?.refreshFromSuite?.();p=products.find(x=>String(x.id)===String(id))||p;
+          }
+        }
+        const now=productStock(p,ix),unit=take(now.linked,group("p:"+p.id,p.data.name,now.linked.length));
+        return unit?{part:{source:"stock",id:unit.id,name:p.data.name.slice(0,350),serial:unit.serial||"",price}}:{};
+      }
+      function fromLoose(key,price) {
+        const owner=ix.ownerByKey.get(key);if(owner)return fromProduct(owner.id,price);
+        const list=ix.ownerByKey.has(key)?[]:(ix.looseByKey.get(key)||[]),name=String(list[0]?.nombre||"").trim(),unit=take(list,group("l:"+key,name,list.length));
+        return unit?{part:{source:"stock",id:unit.id,name:name.slice(0,350),serial:unit.serial||"",price}}:{};
+      }
+      const resolvePart=(part,price)=>part.source==="product"?fromProduct(part.productId,price):part.source==="loose"?fromLoose(String(part.key??""),price):{part:noStockPart(String(part.name).trim(),price)};
+      const partPrice=part=>{try{return (core.cents(part.price)/100).toFixed(2);}catch{return "0.00";}};
+      for(const item of items){
+        const parts=(Array.isArray(item?.parts)?item.parts:[]).filter(p=>p&&["product","loose","external"].includes(p.source)&&String(p.name??"").trim());
+        const qtyText=String(item?.quantity??"").trim(),qty=/^\d{1,4}$/.test(qtyText)&&Number(qtyText)>0?Number(qtyText):Math.max(1,parts.length);
+        let cents=null;try{cents=core.cents(item?.price);}catch{}
+        const line={description:String(item?.description??"").replace(/\s+/g," ").trim().slice(0,350),serial:"",code:String(item?.code??"").trim().slice(0,22),unit:String(item?.unit??"").trim().slice(0,5)||"NIU",quantity:String(qty),price:cents===null?String(item?.price??"").trim().slice(0,12):(cents/100).toFixed(2)};
+        if(!parts.length){
+          out.push({...line,inventory:[],inventoryMode:"units"});
+          notices.push({kind:"manual",line:out.length,name:line.description,quoted:qty,linked:0,text:`Producto ${out.length} («${shortText(line.description||"sin descripción")}») se escribió a mano: elige su producto en la boleta.`});continue;
+        }
+        // Mismo producto en todas las unidades: una unidad por cantidad. Productos distintos: una computadora por línea.
+        const bundle=item.mode==="bundle"||parts.some(p=>p.name!==parts[0].name);
+        for(let copy=0;copy<(bundle?qty:1);copy++){
+          const refs=bundle?parts:Array.from({length:qty},(_,k)=>parts[Math.min(k,parts.length-1)]),resolved=[],stats=new Map();
+          for(const ref of refs){
+            const result=await resolvePart(ref,bundle||cents===null?partPrice(ref):line.price),name=String(ref.name).trim();
+            if(!stats.has(name))stats.set(name,{quoted:0,linked:0,removed:false});
+            const s=stats.get(name);s.quoted++;
+            if(result.part){resolved.push(result.part);s.linked++;}else if(result.removed)s.removed=true;
+          }
+          const total=cents===null?null:cents*(bundle?1:qty);
+          out.push({...line,quantity:bundle?"1":String(qty),inventory:resolved.length===refs.length&&total!==null?core.repriceParts(resolved,total):resolved,inventoryMode:bundle?"bundle":"units"});
+          const n=out.length;
+          for(const [name,s] of stats)if(s.linked<s.quoted)notices.push(s.removed
+            ?{kind:"removed",line:n,name,quoted:s.quoted,linked:s.linked,text:`«${name}» ya no está en tu web. En la boleta pulsa «Seleccionar productos para esta venta» en el producto ${n} para elegir otro (o «Venderlo igual»).`}
+            :{kind:"missing",line:n,name,quoted:s.quoted,linked:s.linked,text:`${name}: cotizaste ${s.quoted} y tienes ${s.linked} en stock. En la boleta pulsa «Seleccionar productos para esta venta» en el producto ${n} para completarlo (o «Venderlo igual»).`});
+        }
+      }
+      if(client!==db)throw Error("Tu sesión cambió. Vuelve a intentarlo.");
+      if(out.length>100)throw Error("La boleta tendría más de 100 productos: divide la cotización en dos.");
+      return {items:out,ready:!notices.length,notices,changes:[...groups.values()].filter(g=>g.linked).map(g=>({name:g.name,before:g.before,after:Math.max(0,g.before-g.linked)}))};
+    }finally{preparingQuote=false;}
+  }
+  // Para las etiquetas del editor de cotizaciones: cuánto se cotiza y cuánto tienes de cada producto (sin consultar la base).
+  function quoteStock(parts) {
+    const ix=catalogReady?stockIndex():null,groups=new Map();
+    for(const part of Array.isArray(parts)?parts:[]){
+      if(!part||typeof part!=="object")continue;
+      const source=["product","loose"].includes(part.source)?part.source:"external",name=String(part.name??"").trim();
+      const key=source==="product"?"product:"+part.productId:source==="loose"?"loose:"+part.key:"external:"+nameKey(name);
+      if(!groups.has(key))groups.set(key,{name,source,quoted:0,inStock:source==="external"||!ix?null:quotedStock(part,ix)});
+      groups.get(key).quoted++;
+    }
+    return [...groups.values()];
+  }
+  window.AOSuite={initialize,refresh,refreshAfterMutation,navigate,logout,pickInventory,openStockGroup,prepareQuoteSale,quoteStock,stockStatus:()=>({ready:catalogReady,error:catalogError}),
+    // Clientes para sugerir en la cotización: ordenados por nombre y sin repetir el mismo cliente.
+    clientsList:()=>{const seen=new Set();return clients.filter(c=>c&&String(c.name||"").trim()).map(c=>({name:String(c.name).trim(),docType:["DNI","RUC","CE","PAS","NONE"].includes(c.doc_type)?c.doc_type:"NONE",document:c.document||"",email:c.email||"",address:c.address||""})).filter(c=>{const key=nameKey(c.name)+"|"+c.docType+"|"+c.document;if(seen.has(key))return false;seen.add(key);return true;}).sort((a,b)=>a.name.localeCompare(b.name,"es"));},
     prepareInventoryProduct:async id=>{await refreshAfterMutation();const p=products.find(p=>String(p.id)===String(id));if(!p||!catalogReady||stock(p)<1)throw Error('Este producto ya no tiene stock disponible en tu web.');if(await registerStock(p,productStock(p,stockIndex())))await refreshAfterMutation();},
     stockProducts:()=>catalogReady?[...publicCatalog.values()].map(row=>{const p=products.find(p=>String(p.id)===String(row.id));return {id:row.id,name:row.name,stock:row.stock,managed:p?.managed===true,webPrice:row.price};}):[]};
 })();

@@ -18,7 +18,7 @@
     return data;
   }
   async function rpc(name, args) { const { data, error } = await client.rpc(name, args); if (error) throw error; return data; }
-  function showLogin() { ++authGeneration; member = null; user = null; delete window.AOCloud; resetReceiptDeletion(); $("appView").hidden = true; $("loginThemeToggle").hidden = false; $("loginView").hidden = false; $("receiptFrame").removeAttribute("src"); $("accountingFrame").removeAttribute("src"); window.AOSuite?.logout(); document.querySelectorAll('input[type="password"]').forEach(e=>e.value=""); $("memberPassword").value=""; $("createdCredentialsText").textContent=""; $("createdCredentials").hidden=true; globalMessage(""); }
+  function showLogin() { ++authGeneration; member = null; user = null; delete window.AOCloud; resetReceiptDeletion(); $("appView").hidden = true; $("loginThemeToggle").hidden = false; $("loginView").hidden = false; $("receiptFrame").removeAttribute("src"); $("accountingFrame").removeAttribute("src"); window.AOSuite?.logout(); window.AOQuotes?.logout(); document.querySelectorAll('input[type="password"]').forEach(e=>e.value=""); $("memberPassword").value=""; $("createdCredentialsText").textContent=""; $("createdCredentials").hidden=true; globalMessage(""); }
   async function enter() {
     if (initializing) return; initializing = true; const generation = ++authGeneration;
     try {
@@ -43,17 +43,19 @@
       $("userName").textContent = member.display_name; $("accountEmail").textContent = user.email; $("teamNav").hidden = member.role !== "owner";
       $("loginView").hidden = true; $("loginThemeToggle").hidden = true; $("appView").hidden = false; $("loginPassword").value = "";
       if (!$("receiptFrame").getAttribute("src")) $("receiptFrame").src = "boletas.html";
-      await window.AOSuite.initialize(client,member); const initialView=new URLSearchParams(location.search).get("vista"); await showView(["catalog","compras","inventario","editor","clients","ventas"].includes(initialView)?initialView:"dashboard");
+      await window.AOSuite.initialize(client,member); window.AOQuotes?.initialize(client,member); const initialView=new URLSearchParams(location.search).get("vista"); await showView(["catalog","compras","inventario","editor","clients","ventas","quotes"].includes(initialView)?initialView:"dashboard");
     } catch (error) { if (generation === authGeneration) message("entryMessage", errorText(error)); }
     finally { initializing = false; }
   }
   async function showView(name) {
     if (name === "team" && member?.role !== "owner") return;
-    document.querySelectorAll("[data-view]").forEach(b => b.classList.toggle("active", b.dataset.view === name));
-    const accounting = ["dashboard","compras","inventario","ventas"].includes(name); for (const view of ["editor", "history", "team", "account", "catalog", "clients", "connection", "accounting"]) $(view + "View").hidden = view === "accounting" ? !accounting : view !== name; window.AOSuite.navigate(name);
-    try { if (name === "history") await loadHistory(); if (name === "team") { await loadTeam(); $("nextNumber").value = String(await rpc("ao_next_number", { series_name: $("numberSeries").value })); } }
+    // El editor de una cotización sigue marcando «Cotizaciones» en el menú.
+    const nav = name === "quoteEditor" ? "quotes" : name; document.querySelectorAll("[data-view]").forEach(b => b.classList.toggle("active", b.dataset.view === nav));
+    const accounting = ["dashboard","compras","inventario","ventas"].includes(name); for (const view of ["editor", "history", "team", "account", "catalog", "clients", "connection", "accounting", "quotes", "quoteEditor"]) $(view + "View").hidden = view === "accounting" ? !accounting : view !== name; window.AOSuite.navigate(name);
+    try { if (name === "quotes") await window.AOQuotes?.show(); if (name === "history") await loadHistory(); if (name === "team") { await loadTeam(); $("nextNumber").value = String(await rpc("ao_next_number", { series_name: $("numberSeries").value })); } }
     catch (error) { globalMessage(errorText(error)); }
   }
+  window.AOApp = { showView, globalMessage };
   document.querySelectorAll("[data-view]").forEach(b => b.addEventListener("click", () => { globalMessage(""); showView(b.dataset.view); }));
   $("loginForm").addEventListener("submit", async e => {
     e.preventDefault(); const button = $("loginButton"); button.disabled = true; message("entryMessage", "");
