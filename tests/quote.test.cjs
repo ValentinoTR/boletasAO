@@ -90,6 +90,9 @@ test('Reglas de la línea: productos iguales → unidades; distintos → una com
   // Partes inválidas (sin nombre, precio o referencia) se descartan; nunca se guardan ids de unidades.
   const clean=plain(call('normalizeQuote',quote({items:[{...quote().items[0],parts:[ryzen,{source:'stock',id:5,name:'Unidad',price:'10'},{source:'product',name:'Sin id',price:'10'},{source:'external',name:'',price:'5'},{source:'external',name:'Fuente 750W',price:'abc'}]}]})));
   assert.deepEqual(clean.items[0].parts,[{source:'product',name:'Ryzen 7 7800X3D',price:'1650.00',productId:'101'}]);
+  // Lo cotizado a pedido de un producto de tu web conserva cuál es (para tomarlo de tu stock si lo repones); sin producto, solo nombre y precio.
+  const ordered=plain(call('normalizeQuote',quote({items:[{...quote().items[0],quantity:'2',parts:[{source:'external',productId:' 103 ',name:'RYZEN 9 9950X3D',price:'2600'},{source:'external',productId:'',name:'Monitor',price:'900'}],mode:'bundle'}]})));
+  assert.deepEqual(ordered.items[0].parts,[{source:'external',name:'RYZEN 9 9950X3D',price:'2600.00',productId:'103'},{source:'external',name:'Monitor',price:'900.00'}]);
   assert.equal(plain(call('normalizeQuote',quote({docType:'NONE',document:'123'}))).document,'');
 });
 test('PDF de la cotización: plantilla, fuentes, 1 página y varias páginas',async()=>{
@@ -99,7 +102,8 @@ test('PDF de la cotización: plantilla, fuentes, 1 página y varias páginas',as
   fs.mkdirSync(path.join(ROOT,'.qa'),{recursive:true});fs.writeFileSync(path.join(ROOT,'.qa/quote-test.pdf'),bytes);
   const scene=plain(run("buildScenes(testQuote,'COT-00012')"))[0].filter(o=>o.type==='text').map(o=>o.value);
   for(const text of ['COTIZACIÓN','COT-00012','CLIENTE:','DIRECCIÓN:','TELÉFONO:','MONEDA:','RUC:','FECHA:','VÁLIDA HASTA:','21/10/2026','CONDICIONES:','IMPORTE TOTAL','S/ 4,640.00','CUATRO MIL SEISCIENTOS CUARENTA SOLES','Documento informativo: no es un comprobante de pago.','Gracias por tu preferencia.'])assert.ok(scene.includes(text),text);
-  assert.ok(scene.some(t=>t.startsWith('Cotización válida hasta el 21/10/2026.')));
+  // El pie no repite la frase de las condiciones («Precios en soles. Sujeto a disponibilidad de stock.»).
+  assert.ok(scene.includes('Cotización válida hasta el 21/10/2026.'));assert.equal(scene.filter(t=>/disponibilidad/i.test(t)).length,1);
   // Sin dirección ni teléfono esas líneas se omiten; sin guardar, el recuadro dice BORRADOR.
   const bare=plain(run("buildScenes({...testQuote,address:'',phone:'',docType:'NONE',document:''})"))[0].filter(o=>o.type==='text').map(o=>o.value);
   assert.ok(bare.includes('BORRADOR')&&!bare.includes('DIRECCIÓN:')&&!bare.includes('TELÉFONO:')&&!bare.includes('RUC:'));

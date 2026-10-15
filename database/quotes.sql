@@ -52,7 +52,10 @@ begin
     and exists(select 1 from public.ao_receipts r where r.id=old.receipt_id and r.deleted_at is null) then
     raise exception 'Esta cotización ya se convirtió en una boleta emitida y no se puede modificar. Para cambiar precios, duplícala.';
   end if;
-  new.updated_at:=now();
+  -- updated_at is the version the app saves against (a save only applies to the version it edited). Linking the receipt
+  -- prepared from the quote (receipt_id) is not an edit, so it keeps the version and never invalidates an open editor.
+  if (to_jsonb(new)-'updated_at'-'receipt_id') is distinct from (to_jsonb(old)-'updated_at'-'receipt_id') then new.updated_at:=now();
+  else new.updated_at:=old.updated_at; end if;
   return new;
 end;
 $$;

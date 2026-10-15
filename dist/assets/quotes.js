@@ -79,6 +79,8 @@
     const counts = Object.fromEntries(Object.entries(FILTERS).map(([key, test]) => [key, list.filter(x => test(x.status)).length]));
     document.querySelectorAll("[data-quote-filter]").forEach(b => { const on = b.dataset.quoteFilter === filter; b.classList.toggle("active", on); b.setAttribute("aria-pressed", String(on)); });
     document.querySelectorAll("[data-quote-count]").forEach(e => e.textContent = String(counts[e.dataset.quoteCount] ?? 0));
+    // Nombre para lectores de pantalla: «Pendientes (4)» en lugar de «Pendientes4».
+    document.querySelectorAll("[data-quote-filter]").forEach(b => { b.dataset.label ||= b.firstChild.textContent.trim(); b.setAttribute("aria-label", b.dataset.label + " (" + (counts[b.dataset.quoteFilter] ?? 0) + ")"); });
     // «COT-00012», «cot 12» o «cot12» buscan ese número exacto; lo demás, cada palabra en cliente, documento o teléfono.
     const term = fold($("quotesSearch").value.trim()), tokens = term.split(/\s+/).filter(Boolean), cot = term.match(/^cot[\s-]*0*(\d{1,12})$/);
     const visible = list.filter(x => FILTERS[filter](x.status) && (cot ? Number(x.row.number) === Number(cot[1]) : tokens.every(t => haystack(x.row).includes(t))));
@@ -108,13 +110,14 @@
     $("quotesSummary").innerHTML = tiles.map(([key, title, value, note]) => `<div class="quote-kpi ${key}"><span>${title}</span><strong>${value}</strong><small>${esc(note)}</small></div>`).join("");
   }
   const haystack = row => fold([label(row.number), row.customer, row.document, row.phone, String(row.phone || "").replace(/\D/g, ""), row.quote?.email].join(" "));
+  // El número y el cliente abren con el mouse; con el teclado se usa «Abrir» (una sola parada por acción).
   function rowHTML({ row, status }) {
     const quote = row.quote || {}, name = label(row.number), converted = status.key === "converted", items = Array.isArray(quote.items) ? quote.items.length : 0;
     const contact = [row.document ? (DOCS[quote.docType] || "Doc.") + " " + row.document : "", row.phone].filter(Boolean).map(text => `<span>${esc(text)}</span>`).join(" · ");
     return `<tr data-id="${esc(row.id)}" data-status="${status.key}">`
-      + `<td class="quote-number" data-label="Cotización"><button type="button" class="quote-link" data-quote-action="open" aria-label="Abrir la cotización ${name}">${name}</button><small class="quote-sub quote-sub-date">${formatDate(row.quote_date)}</small></td>`
+      + `<td class="quote-number" data-label="Cotización"><button type="button" class="quote-link" data-quote-action="open" tabindex="-1" aria-label="Abrir la cotización ${name}">${name}</button><small class="quote-sub quote-sub-date">${formatDate(row.quote_date)}</small></td>`
       + `<td class="quote-date" data-label="Fecha">${formatDate(row.quote_date)}</td>`
-      + `<td class="quote-client" data-label="Cliente"><button type="button" class="quote-link" data-quote-action="open" aria-label="Abrir la cotización ${name} de ${esc(row.customer)}">${esc(row.customer)}</button>${contact ? `<small>${contact}</small>` : ""}</td>`
+      + `<td class="quote-client" data-label="Cliente"><button type="button" class="quote-link" data-quote-action="open" tabindex="-1" aria-label="Abrir la cotización ${name} de ${esc(row.customer)}">${esc(row.customer)}</button>${contact ? `<small>${contact}</small>` : ""}</td>`
       + `<td class="quote-valid" data-label="Válida hasta">${formatDate(row.valid_until)}</td>`
       + `<td class="quote-total num" data-label="Total"><strong>${money(row.total_cents)}</strong><small>${plural(items, "producto", "productos")}</small></td>`
       + `<td class="quote-status" data-label="Estado"><span class="pill quote-pill ${status.key}" title="${esc(status.text)}">${esc(status.pill)}</span><small class="quote-sub quote-sub-valid">Válida hasta ${formatDate(row.valid_until)}</small></td>`
@@ -159,7 +162,8 @@
     if (error?.code === "42501" || /permission denied|row-level security/i.test(error?.message || "")) return "Tu cuenta no tiene permiso para guardar cotizaciones. Pídele acceso al administrador.";
     return errorText(error);
   }
-  async function save(quote, id) {
+  // base: updated_at de la versión que se editaba (null en una cotización nueva).
+  async function save(quote, id, base = null) {
     const client = db, current = generation;
     if (!client) throw Error("Tu sesión terminó. Vuelve a ingresar para guardar la cotización.");
     if (typeof id !== "string" || !UUID.test(id) || !quote || typeof quote !== "object" || Array.isArray(quote)) throw Error("No se pudo guardar la cotización: datos incompletos.");
@@ -171,13 +175,30 @@
     if (!ISO.test(String(quote.date)) || !ISO.test(String(quote.validUntil))) throw Error("Revisa la fecha y la validez de la cotización.");
     // Nunca se envían number, receipt_id ni created_*: los asigna la base.
     const record = { id, quote, customer, document: String(quote.document ?? "").trim().slice(0, 20), phone: String(quote.phone ?? "").trim().slice(0, 20), total_cents: total, quote_date: quote.date, valid_until: quote.validUntil };
-    const { data, error } = await client.from("ao_quotes").upsert(record, { onConflict: "id" }).select(COLUMNS).single();
+    // La primera vez (o al reintentar un guardado que no respondió) se usa upsert, que no duplica. Después solo se guarda
+    // sobre la misma versión que se editaba: así no se pisan los cambios de otra persona ni revive una cotización eliminada.
+    const known = typeof base === "string" && base !== "", { id: _, ...changes } = record;
+    const request = known ? client.from("ao_quotes").update(changes).eq("id", id).eq("updated_at", base) : client.from("ao_quotes").upsert(record, { onConflict: "id" });
+    const { data, error } = await request.select(COLUMNS).single();
     if (current !== generation) throw Error("Tu sesión cambió. Vuelve a ingresar.");
-    if (error) { if (isMissing(error)) { rows = []; receipts = new Map(); state = "missing"; render(); throw Error(setupText()); } throw Error(saveError(error)); }
+    if (error) {
+      if (isMissing(error)) { rows = []; receipts = new Map(); state = "missing"; render(); throw Error(setupText()); }
+      if (known && error.code === "PGRST116") throw Error(await conflictText(client, id, current));
+      throw Error(saveError(error));
+    }
     if (!data || data.id !== id) throw Error("El servidor no confirmó la cotización. Inténtalo otra vez.");
     const index = rows.findIndex(r => r.id === id); if (index >= 0) rows[index] = data; else rows.unshift(data);
     if (state !== "ready" && state !== "loading") state = "ready";
     render(); return toRow(data);
+  }
+  // El guardado no encontró la versión que se editaba: se eliminó o alguien la cambió mientras tanto.
+  async function conflictText(client, id, current) {
+    const { data, error } = await client.from("ao_quotes").select(COLUMNS).eq("id", id).maybeSingle();
+    if (error) return "No se pudo guardar: esta cotización cambió en otro dispositivo. Vuelve a abrirla desde la lista.";
+    if (current === generation) { const index = rows.findIndex(r => r.id === id); if (!data) rows = rows.filter(r => r.id !== id); else if (index >= 0) rows[index] = data; else rows.unshift(data); render(); }
+    return data
+      ? "Otra persona guardó cambios en esta cotización mientras la editabas. Para no perder los tuyos, pulsa «Duplicar» (se guarda como una nueva) o vuelve a abrirla desde la lista para ver la versión actual."
+      : "Esta cotización fue eliminada (en este u otro dispositivo). Para conservarla, pulsa «Duplicar» y guarda la copia como una cotización nueva.";
   }
   async function viewReceipt(id) {
     let row = rows.find(r => r.id === id), receipt = row && statusOf(row).receipt;
@@ -207,7 +228,7 @@
       quoteStock: parts => window.AOSuite.quoteStock(parts),
       clients: () => window.AOSuite.clientsList(),
       save, convert: convertFromEditor, viewReceipt, label,
-      back: () => { message(""); app()?.showView("quotes"); },
+      back: note => { message(""); app()?.showView("quotes"); if (typeof note === "string" && note) toast(note); },
       saved: () => render(),
       frameReady: () => { editorReady = true; flushEditor(); }
     });
@@ -216,22 +237,50 @@
   // ---------- Convertir en boleta ----------
   function convertControls(disabled) { for (const id of ["convertQuoteCancel", "convertQuoteClose"]) $(id).disabled = disabled; }
   function closeConvert() { if (convertState?.busy) return; convertState = null; convertControls(false); if ($("convertQuoteDialog").open) $("convertQuoteDialog").close(); }
+  const convertSummary = row => `<strong>${label(row.number)}</strong> · ${esc(row.customer)} · <strong>${money(row.total_cents)}</strong>`;
   function openConvert(row) {
     if (convertState?.busy || !db) return;
     if (statusOf(row).key === "converted") { viewReceipt(row.id).catch(error => message(errorText(error))); return; }
-    const target = { row, generation, result: null, busy: false, checking: false };
+    const target = { row, generation, result: null, busy: false, checking: false, link: null, receipt: null };
     convertState = target; convertControls(false);
-    $("convertQuoteSummary").innerHTML = `<strong>${label(row.number)}</strong> · ${esc(row.customer)} · <strong>${money(row.total_cents)}</strong>`;
+    $("convertQuoteSummary").innerHTML = convertSummary(row);
     if (!$("convertQuoteDialog").open) $("convertQuoteDialog").showModal();
     check(target);
   }
+  // Vuelve a leer la cotización (los precios pudieron cambiar en otro dispositivo) y su boleta, si ya tiene una emitida.
+  async function reread(id) {
+    const client = db, current = generation;
+    const { data, error } = await client.from("ao_quotes").select(COLUMNS).eq("id", id).maybeSingle();
+    if (error) throw error;
+    let receipt = null;
+    if (data?.receipt_id) { const found = await client.from("ao_receipts").select("id,series,number,date,payload").eq("id", data.receipt_id).is("deleted_at", null).maybeSingle(); if (found.error) throw found.error; receipt = found.data || null; }
+    if (current === generation) {
+      const index = rows.findIndex(r => r.id === id);
+      if (!data) rows = rows.filter(r => r.id !== id); else if (index >= 0) rows[index] = data; else rows.unshift(data);
+      if (receipt) receipts.set(String(receipt.id), receipt); else if (data?.receipt_id) receipts.delete(String(data.receipt_id));
+      render();
+    }
+    return data ? { row: data, receipt } : null;
+  }
+  // Borrador de boleta de este dispositivo: indica si la boleta ya abierta desde la cotización está aquí.
+  function draftReceiptId() {
+    try { const id = $("receiptFrame").contentWindow?.draftReceiptId?.(); if (id !== undefined) return id; } catch {}
+    try { const saved = JSON.parse(localStorage.getItem("ao-nexus-boleta-v1-" + String(member?.user_id || "")) || "null"); return saved && saved.issued !== true ? saved.id || null : null; } catch { return null; }
+  }
   async function check(target) {
-    target.checking = true; target.result = null;
+    target.checking = true; target.result = null; target.link = null; target.receipt = null;
     $("convertQuoteProgress").hidden = false; $("convertQuoteResult").replaceChildren(); $("convertQuoteMessage").textContent = "";
     $("convertQuoteConfirm").disabled = true; $("convertQuoteConfirm").textContent = "Abrir la boleta";
     try {
+      const fresh = await reread(target.row.id);
+      if (convertState !== target) return;
+      if (!fresh) throw Error("Esta cotización ya no existe: se eliminó en este u otro dispositivo.");
+      target.row = fresh.row; $("convertQuoteSummary").innerHTML = convertSummary(fresh.row);
+      if (fresh.receipt) { target.receipt = fresh.receipt; renderConverted(target); return; }
+      // Ya se abrió una boleta de esta cotización que aún no se emite (aquí o en otro dispositivo).
+      if (fresh.row.receipt_id) target.link = { here: draftReceiptId() === String(fresh.row.receipt_id) };
       // Elige unidades reales de tu stock para cada producto cotizado (no descuenta nada hasta emitir).
-      const result = await window.AOSuite.prepareQuoteSale(structuredClone(target.row.quote?.items || []));
+      const result = await window.AOSuite.prepareQuoteSale(structuredClone(fresh.row.quote?.items || []));
       if (convertState !== target) return;
       if (!result || !Array.isArray(result.items) || !result.items.length) throw Error("No se pudo preparar la boleta. Inténtalo otra vez.");
       target.result = result; renderResult(target);
@@ -242,31 +291,65 @@
       if (convertState === target) { target.checking = false; $("convertQuoteProgress").hidden = true; $("convertQuoteConfirm").disabled = false; $("convertQuoteConfirm").focus(); }
     }
   }
-  function renderResult({ row, result }) {
+  function renderConverted({ receipt }) {
+    $("convertQuoteResult").innerHTML = `<div class="convert-box ok"><p><strong>Esta cotización ya se convirtió en la boleta ${esc(receipt.series + "-" + receipt.number)}.</strong> No se convierte otra vez: para volver a cotizar estos productos, duplícala.</p></div>`;
+    $("convertQuoteConfirm").textContent = "Ver boleta";
+  }
+  function renderResult({ row, result, link }) {
     const notices = Array.isArray(result.notices) ? result.notices : [], changes = Array.isArray(result.changes) ? result.changes : [];
-    const external = result.items.some(item => (item.inventory || []).some(part => part.source === "external"));
-    const list = changes.length ? `<ul class="convert-changes">${changes.map(c => `<li><span>${esc(c.name)}</span><strong>${Number(c.before)} → ${Number(c.after)}</strong></li>`).join("")}</ul>` : "";
+    const service = notices.filter(n => n.kind === "service"), pending = notices.filter(n => n.kind !== "service"), serviceLines = new Set(service.map(n => Number(n.line)));
+    // Lo cotizado a pedido se nombra junto a lo que baja de tu stock; lo escrito a mano (servicios) va aparte.
+    const ordered = new Map();
+    result.items.forEach((item, i) => { if (!serviceLines.has(i + 1)) for (const part of item.inventory || []) if (part.source === "external") { const name = String(part.name || ""); ordered.set(name, (ordered.get(name) || 0) + 1); } });
+    const entries = changes.map(c => `<li><span>${esc(c.name)}</span><strong>${Number(c.before)} → ${Number(c.after)}</strong></li>`)
+      .concat([...ordered].map(([name, n]) => `<li><span>${esc(name)}${n > 1 ? ` <small>× ${n}</small>` : ""}</span><small class="convert-tag">a pedido · no descuenta stock</small></li>`));
+    const list = entries.length ? `<ul class="convert-changes">${entries.join("")}</ul>` : "";
     let html = "";
+    if (link) html += link.here
+      ? '<div class="convert-box warn"><p>Ya abriste una boleta de esta cotización en «Nueva boleta» y aún no la emites. Si continúas, se vuelve a preparar con tu stock actual y reemplaza ese borrador.</p></div>'
+      : '<div class="convert-box warn"><p><strong>Ya se preparó una boleta de esta cotización que no está emitida:</strong> puede estar abierta en otro dispositivo (o se eliminó). Si abres otra, emite solo una de las dos: la otra sería una segunda venta.</p></div>';
     if (daysBetween(limaDate(), row.valid_until) < 0) html += `<div class="convert-box expired"><p>Esta cotización venció el ${formatDate(row.valid_until)}: revisa los precios antes de emitir.</p></div>`;
-    if (result.ready && !notices.length) html += `<div class="convert-box ok"><p><strong>${changes.length ? "Todo está en tu stock." : "Todo está listo."}</strong> ${changes.length ? "Al emitir la boleta tu stock bajará:" : "Ningún producto sale de tu stock."}</p>${list}${external ? '<p class="convert-note">Los productos a pedido se venden sin descontar stock.</p>' : ""}</div>`;
-    else html += `<div class="convert-box warn"><p><strong>Antes de emitir, completa esto en la boleta:</strong></p><ul class="convert-notices">${notices.map(n => `<li>${esc(n.text)}</li>`).join("")}</ul></div>` + (changes.length ? `<div class="convert-box"><p>Lo que sí está en tu stock bajará al emitir la boleta:</p>${list}</div>` : "");
+    if (!pending.length) {
+      const head = ordered.size || service.length ? (changes.length ? "Listo para emitir." : "Todo está listo.") : "Todo está en tu stock.";
+      html += `<div class="convert-box ok"><p><strong>${head}</strong> ${changes.length ? "Al emitir la boleta tu stock bajará:" : "Ningún producto sale de tu stock."}</p>${list}</div>`;
+    } else html += `<div class="convert-box warn"><p><strong>Antes de emitir, ${pending.some(n => n.kind !== "instock") ? "completa" : "revisa"} esto en la boleta:</strong></p><ul class="convert-notices">${pending.map(n => `<li>${esc(n.text)}</li>`).join("")}</ul></div>`
+      + (list ? `<div class="convert-box"><p>${changes.length ? "Lo que sí está en tu stock bajará al emitir la boleta:" : "Ningún producto sale de tu stock:"}</p>${list}</div>` : "");
+    // Servicios y productos escritos a mano que se venden sin stock: solo información, no hay nada que completar.
+    if (service.length) html += `<div class="convert-box info"><ul class="convert-info">${service.map(n => `<li>${esc(n.text)}</li>`).join("")}</ul></div>`;
     html += '<p class="hint convert-hint">Se abrirá un borrador de boleta con el cliente y los productos. Tu stock cambia recién cuando pulses «Emitir y descargar».</p>';
     $("convertQuoteResult").innerHTML = html;
+    if (link && !link.here) $("convertQuoteConfirm").textContent = "Abrir otra boleta igual";
+  }
+  // El vínculo no se guardó porque la cotización cambió en otro dispositivo: se vuelve a leer para explicar qué pasó.
+  async function changedText(target) {
+    let fresh; try { fresh = await reread(target.row.id); } catch { target.result = null; return "Esta cotización cambió en otro dispositivo. Pulsa «Volver a revisar»."; }
+    target.result = null;
+    if (!fresh) return "Esta cotización ya no existe: se eliminó en este u otro dispositivo.";
+    target.row = fresh.row;
+    if (fresh.receipt) { target.receipt = fresh.receipt; return `Esta cotización ya se convirtió en la boleta ${fresh.receipt.series}-${fresh.receipt.number}.`; }
+    return "Mientras revisabas se abrió una boleta de esta cotización en otro dispositivo. Pulsa «Volver a revisar» antes de abrir otra.";
   }
   async function confirmConvert() {
     const target = convertState; if (!target || target.busy || target.checking) return;
+    if (target.receipt) { const id = target.row.id; closeConvert(); viewReceipt(id).catch(error => message(errorText(error))); return; }
     if (!target.result) return check(target);
     const { row, result } = target, client = db, receiptId = crypto.randomUUID(), previous = row.receipt_id ?? null, name = label(row.number);
     target.busy = true; convertControls(true); $("convertQuoteConfirm").disabled = true; $("convertQuoteConfirm").textContent = "Abriendo la boleta…"; $("convertQuoteMessage").textContent = "";
     try {
-      // La boleta se emitirá con este id: así la cotización se muestra «Convertida» cuando exista.
-      const { data, error } = await client.from("ao_quotes").update({ receipt_id: receiptId }).eq("id", row.id).select("id,receipt_id").single();
-      if (error) throw error.code === "PGRST116" ? Error("Esta cotización ya no existe. Pulsa «Actualizar».") : error;
+      // La boleta se emitirá con este id: así la cotización se muestra «Convertida» cuando exista. Se enlaza solo si sigue
+      // como se revisó; si otro dispositivo la enlazó mientras tanto, no se pisa (dos boletas serían dos ventas).
+      let request = client.from("ao_quotes").update({ receipt_id: receiptId }).eq("id", row.id);
+      request = previous === null ? request.is("receipt_id", null) : request.eq("receipt_id", previous);
+      const { data, error } = await request.select("id,receipt_id").single();
+      if (error) throw error;
       if (data?.receipt_id !== receiptId) throw Error("No se pudo vincular la cotización con su boleta. Inténtalo otra vez.");
     } catch (error) {
+      const text = error?.code === "PGRST116" ? await changedText(target) : errorText(error);
       target.busy = false;
-      if (convertState === target) { convertControls(false); $("convertQuoteConfirm").disabled = false; $("convertQuoteConfirm").textContent = "Abrir la boleta"; $("convertQuoteMessage").textContent = errorText(error); }
-      // Si otra persona ya emitió su boleta, la lista lo muestra al actualizarse (la base no permite una segunda boleta).
+      if (convertState === target) {
+        convertControls(false); $("convertQuoteConfirm").disabled = false; $("convertQuoteMessage").textContent = text;
+        if (target.receipt) renderConverted(target); else $("convertQuoteConfirm").textContent = target.result ? "Abrir la boleta" : "Volver a revisar";
+      }
       if (target.generation === generation) load().catch(() => {});
       return;
     }
@@ -274,10 +357,12 @@
     if (target.generation !== generation) return;
     row.receipt_id = receiptId;
     const quote = row.quote || {}, doc = String(quote.document ?? row.document ?? "").trim(), receipt = { customer: quote.customer ?? row.customer, docType: doc ? quote.docType : "NONE", document: doc, address: quote.address || "", email: quote.email || "", items: structuredClone(result.items) };
+    // Los avisos siguen a la vista en la boleta hasta emitirla.
+    const notices = structuredClone(Array.isArray(result.notices) ? result.notices : []);
     if (convertState === target) closeConvert();
     await goTo("editor");
     let accepted;
-    try { const frame = await receiptWindow("loadQuoteSale"); if (target.generation !== generation) return; accepted = frame.loadQuoteSale(receipt, receiptId, name); }
+    try { const frame = await receiptWindow("loadQuoteSale"); if (target.generation !== generation) return; accepted = frame.loadQuoteSale(receipt, receiptId, name, notices); }
     catch (error) { unlink(row, receiptId, previous); message(errorText(error)); return; }
     if (accepted === false) unlink(row, receiptId, previous);
   }

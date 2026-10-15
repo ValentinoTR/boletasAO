@@ -93,7 +93,8 @@ function mockSupabase(){
     else if(q.op==='upsert'){const p=q.payload,i=rows.findIndex(r=>r.id===p.id);
       if(i>=0){rows[i]={...rows[i],...p,updated_at:now()};out=[rows[i]];}
       else{const row={number:nextQuote++,receipt_id:null,created_by:user.id,created_at:now(),updated_at:now(),...p};rows.unshift(row);out=[row];}}
-    else if(q.op==='update'){out=rows.filter(match);out.forEach(r=>Object.assign(r,q.payload,{updated_at:now()}));}
+    // Como el disparador: enlazar la boleta (solo receipt_id) no cambia la versión (updated_at) con la que guarda el editor.
+    else if(q.op==='update'){out=rows.filter(match);const link=Object.keys(q.payload).every(k=>k==='receipt_id');out.forEach(r=>Object.assign(r,q.payload,link?{}:{updated_at:now()}));}
     else if(q.op==='delete'){out=rows.filter(match);db[q.table]=rows.filter(r=>!out.includes(r));}
     else return {data:null,error:{message:'Operación no simulada: '+q.op},count:null};
     let data=JSON.parse(JSON.stringify(out));
@@ -159,7 +160,8 @@ async function open(options={}){
     calls:filter=>page.evaluate(()=>window.__calls).then(c=>filter?c.filter(filter):c),
     db:table=>page.evaluate(t=>window.__db[t],table),
     action:async(number,action)=>{await page.click(`#quotesRows tr[data-id="${qid(number)}"] [data-quote-action="${action}"]`);},
-    receiptFrame:()=>page.frame({url:/boletas\.html/}),
+    // El iframe de la boleta puede tardar en navegar con la máquina cargada: se espera hasta tenerlo.
+    receiptFrame:async()=>{for(let i=0;i<150;i++){const frame=page.frame({url:/boletas\.html/});if(frame)return frame;await page.waitForTimeout(100);}throw Error('No se cargó boletas.html');},
     shot:async name=>{if(!process.env.QUOTES_SHOTS)return;fs.mkdirSync(process.env.QUOTES_SHOTS,{recursive:true});await page.screenshot({path:path.join(process.env.QUOTES_SHOTS,name+'.png'),fullPage:false});},
     close:()=>context.close()};
   return s;
@@ -225,7 +227,8 @@ test('Si falta la tabla se muestra cómo activarla y «Nueva cotización» queda
     await s.shot('missing-'+role);
     // Al activarla y pulsar Actualizar aparece la lista.
     await s.page.evaluate(()=>{window.__db.ao_quotes=[];});await s.page.click('#refreshQuotes');
-    await s.page.waitForFunction(()=>document.getElementById('quotesSetup').hidden);
+    // Primero se ve «Cargando…»; se espera a que termine la consulta.
+    await s.page.waitForFunction(()=>document.getElementById('quotesSetup').hidden&&!document.querySelector('#quotesEmpty .quotes-loading'));
     assert.equal(await s.page.isEnabled('#newQuote'),true);assert.match(await s.page.textContent('#quotesEmpty'),/Aún no tienes cotizaciones/);
     assert.deepEqual(s.errors,[]);await s.close();
   }
@@ -264,8 +267,9 @@ test('Convertir: todo en stock → abre la boleta vinculada y, al emitirla, el s
   await s.action(18,'convert');await checked(s.page);
   assert.equal(await s.page.textContent('#convertQuoteSummary'),'COT-00018 · Comercial Andina S.A.C. · S/ 2,549.00');
   const result=await s.page.innerText('#convertQuoteResult');
-  assert.match(result,/Todo está en tu stock\. Al emitir la boleta tu stock bajará:/);
-  assert.match(result,/RYZEN 7 7800X3D\s+2 → 1/);assert.match(result,/Los productos a pedido se venden sin descontar stock/);
+  // Lo a pedido no está en tu stock: el título no lo dice y se nombra en la misma lista.
+  assert.match(result,/Listo para emitir\. Al emitir la boleta tu stock bajará:/);assert.doesNotMatch(result,/Todo está en tu stock/);
+  assert.match(result,/RYZEN 7 7800X3D\s+2 → 1/);assert.match(result,/Monitor LG UltraGear 27" 180 Hz\s+a pedido · no descuenta stock/);
   assert.doesNotMatch(result,/venció/);
   assert.equal(await s.page.textContent('#convertQuoteConfirm'),'Abrir la boleta');
   assert.deepEqual(await s.calls(c=>c.op&&c.op!=='select'||c.rpc&&c.rpc!=='ao_next_number'),[],'revisar no escribe nada');
@@ -274,7 +278,7 @@ test('Convertir: todo en stock → abre la boleta vinculada y, al emitirla, el s
   await s.page.waitForFunction(()=>!document.getElementById('editorView').hidden&&!document.getElementById('convertQuoteDialog').open);
   const quoteRow=(await s.db('ao_quotes')).find(q=>q.number===18);
   assert.match(quoteRow.receipt_id,/^[0-9a-f-]{36}$/,'la cotización guarda el id con el que se emitirá la boleta');
-  const frame=s.receiptFrame();
+  const frame=await s.receiptFrame();
   await frame.waitForFunction(()=>document.getElementById('customer').value==='Comercial Andina S.A.C.');
   assert.equal(await frame.inputValue('#docType'),'RUC');assert.equal(await frame.inputValue('#document'),'20601234567');
   assert.deepEqual(await frame.evaluate(()=>window.getInventoryIdsExcept(-1)),['70'],'el Ryzen ya está vinculado a una unidad real');
@@ -304,7 +308,9 @@ test('Convertir con faltantes avisa antes de emitir; si está vencida lo dice',{
   assert.match(result,new RegExp('Esta cotización venció el '+D(-1).split('-').reverse().join('/')+': revisa los precios antes de emitir\\.'));
   assert.match(result,/Antes de emitir, completa esto en la boleta:/);
   assert.match(result,/RYZEN 7 7800X3D: cotizaste 3 y tienes 2 en stock/);
-  assert.match(result,/Producto 2 \(«Armado y configuración»\) se escribió a mano/);
+  // El servicio escrito a mano no es un pendiente: se informa aparte, sin el recuadro de «completa esto».
+  assert.equal(await s.page.innerText('#convertQuoteResult .convert-box.info'),'Producto 2 («Armado y configuración») se venderá sin stock: no cambia tu stock.');
+  assert.doesNotMatch(await s.page.innerText('#convertQuoteResult .convert-box.warn:not(.expired)'),/Armado/);
   assert.match(result,/Lo que sí está en tu stock bajará al emitir la boleta:\s+RYZEN 7 7800X3D\s+2 → 0/);
   assert.equal(await s.page.isEnabled('#convertQuoteConfirm'),true,'se puede abrir la boleta para completarla');
   await s.shot('convert-notices');
@@ -324,7 +330,7 @@ test('«Abrir la boleta»: si falla el vínculo no abre nada; si se conserva el 
   assert.equal(await s.page.isEnabled('#convertQuoteConfirm'),true);assert.equal(await s.page.isEnabled('#convertQuoteCancel'),true);
   await s.page.evaluate(()=>{delete window.__fail['ao_quotes:update'];});
   // El borrador actual de la boleta se conserva (loadQuoteSale devuelve false).
-  const frame=s.receiptFrame();await frame.waitForFunction(()=>typeof window.loadQuoteSale==='function');
+  const frame=await s.receiptFrame();await frame.waitForFunction(()=>typeof window.loadQuoteSale==='function');
   await frame.evaluate(()=>{window.__received=[];window.loadQuoteSale=(receipt,id,label)=>{window.__received.push({receipt,id,label});return false;};});
   await s.page.click('#convertQuoteConfirm');
   await frame.waitForFunction(()=>window.__received.length===1);
@@ -358,7 +364,9 @@ test('Si la revisión del stock falla se puede volver a revisar; una cotización
   await s.page.evaluate(({id,receipt})=>{const today=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Lima'}).format(new Date());window.__db.ao_quotes.find(q=>q.id===id).receipt_id=receipt;
     window.__db.ao_receipts.unshift({id:receipt,series:'B001',number:'130',date:today,customer:'Jorge Ramírez Ortiz',total_cents:129000,deleted_at:null,payload:{}});},{id:qid(16),receipt:'00000000-0000-4000-8000-000000000003'});
   await s.page.click('#convertQuoteConfirm');
-  await s.page.waitForFunction(()=>/ya se convirtió en una boleta emitida/.test(document.getElementById('convertQuoteMessage').textContent));
+  // El vínculo solo se guarda si la cotización sigue como se revisó: no se pisa y se explica qué pasó.
+  await s.page.waitForFunction(()=>/Esta cotización ya se convirtió en la boleta B001-130\./.test(document.getElementById('convertQuoteMessage').textContent));
+  assert.equal(await s.page.textContent('#convertQuoteConfirm'),'Ver boleta');
   assert.equal(await s.page.isVisible('#quotesView'),true,'no abre otra boleta');
   assert.equal(await s.page.isEnabled('#convertQuoteCancel'),true);
   await s.page.waitForFunction(id=>document.querySelector(`#quotesRows tr[data-id="${id}"]`)?.dataset.status==='converted',qid(16));
@@ -373,7 +381,7 @@ test('Si la revisión del stock falla se puede volver a revisar; una cotización
 
 test('«Ver boleta» abre la boleta emitida de una cotización convertida',{skip},async()=>{
   const s=await open();
-  const frame=s.receiptFrame();await frame.waitForFunction(()=>typeof window.loadCloudReceipt==='function');
+  const frame=await s.receiptFrame();await frame.waitForFunction(()=>typeof window.loadCloudReceipt==='function');
   await frame.evaluate(()=>{window.__loaded=[];window.loadCloudReceipt=(payload,id)=>window.__loaded.push({payload,id});});
   await s.action(14,'receipt');
   await frame.waitForFunction(()=>window.__loaded.length===1);
@@ -415,7 +423,7 @@ test('Editor: AOQuoteHost espera frameReady, guarda con upsert y vuelve a la lis
   // convert() desde el editor abre el diálogo en el panel.
   await editor().evaluate(id=>window.parent.AOQuoteHost.convert(id),id);
   await checked(s.page);assert.match(await s.page.textContent('#convertQuoteSummary'),/COT-00019 · Nuevo Cliente · S\/ 701\.00/);
-  assert.match(await s.page.innerText('#convertQuoteResult'),/Producto 1 \(«Fuente 750W»\) se escribió a mano/);
+  assert.match(await s.page.innerText('#convertQuoteResult'),/Producto 1 \(«Fuente 750W»\) se venderá sin stock: no cambia tu stock\./);
   await s.page.click('#convertQuoteClose');
   // back() muestra la lista actualizada.
   await editor().evaluate(()=>window.parent.AOQuoteHost.back());
@@ -471,6 +479,200 @@ test('En el teléfono las filas se apilan como tarjetas, sin desplazamiento hori
     assert.equal(card.bg,theme==='dark'?'rgb(34, 28, 43)':'rgb(255, 255, 255)');
     assert.equal(await s.page.evaluate(()=>document.documentElement.dataset.theme),theme);
     await s.close();
+  }
+});
+
+// ---------- Revisión: conversión con datos de otro dispositivo, guardado sobre la versión editada, accesibilidad ----------
+test('Convertir relee la cotización: usa los precios guardados en otro dispositivo y avisa si ya se abrió una boleta sin emitir',{skip},async()=>{
+  const s=await open();
+  // En otro dispositivo bajaron el precio del SSD y abrieron una boleta de COT-00015 que aún no se emite.
+  const pending='00000000-0000-4000-8000-0000000000aa';
+  await s.page.evaluate(({id,pending})=>{const q=window.__db.ao_quotes.find(q=>q.id===id);q.quote.items[0].price='250.00';q.quote.items[0].parts.forEach(p=>p.price='250.00');q.total_cents=50000;q.receipt_id=pending;},{id:qid(15),pending});
+  await s.action(15,'convert');await checked(s.page);
+  assert.equal(await s.page.textContent('#convertQuoteSummary'),'COT-00015 · Inversiones Rímac E.I.R.L. · S/ 500.00','el resumen usa la versión guardada');
+  assert.match(await s.page.innerText('#convertQuoteResult'),/Ya se preparó una boleta de esta cotización que no está emitida: puede estar abierta en otro dispositivo \(o se eliminó\)\. Si abres otra, emite solo una de las dos/);
+  assert.equal(await s.page.textContent('#convertQuoteConfirm'),'Abrir otra boleta igual');
+  await s.page.click('#convertQuoteConfirm');
+  const frame=await s.receiptFrame();await frame.waitForFunction(()=>document.getElementById('customer').value==='Inversiones Rímac E.I.R.L.');
+  assert.equal(await frame.inputValue('#price-0'),'250.00','la boleta usa el precio guardado en el otro dispositivo');
+  const linked=(await s.db('ao_quotes')).find(q=>q.number===15).receipt_id;
+  assert.notEqual(linked,pending);assert.equal(await frame.evaluate(()=>window.draftReceiptId()),linked);
+  // En este dispositivo: el borrador abierto es de esta cotización y se reemplaza al volver a convertirla.
+  await s.page.click('[data-view="quotes"]');await s.action(15,'convert');await checked(s.page);
+  assert.match(await s.page.innerText('#convertQuoteResult'),/Ya abriste una boleta de esta cotización en «Nueva boleta» y aún no la emites\. Si continúas, se vuelve a preparar con tu stock actual y reemplaza ese borrador\./);
+  assert.equal(await s.page.textContent('#convertQuoteConfirm'),'Abrir la boleta');
+  assert.deepEqual(s.errors,[]);await s.close();
+});
+
+test('«Abrir la boleta» no pisa el vínculo que otro dispositivo guardó mientras se revisaba',{skip},async()=>{
+  const s=await open();
+  await s.action(16,'convert');await checked(s.page);
+  const other='00000000-0000-4000-8000-0000000000bb';
+  await s.page.evaluate(({id,other})=>{window.__db.ao_quotes.find(q=>q.id===id).receipt_id=other;},{id:qid(16),other});
+  await s.page.click('#convertQuoteConfirm');
+  await s.page.waitForFunction(()=>document.getElementById('convertQuoteMessage').textContent==='Mientras revisabas se abrió una boleta de esta cotización en otro dispositivo. Pulsa «Volver a revisar» antes de abrir otra.');
+  assert.equal((await s.db('ao_quotes')).find(q=>q.number===16).receipt_id,other,'el vínculo del otro dispositivo se conserva');
+  assert.equal(await s.page.isVisible('#quotesView'),true,'no abre otra boleta');
+  assert.equal(await s.page.textContent('#convertQuoteConfirm'),'Volver a revisar');
+  await s.page.click('#convertQuoteConfirm');await checked(s.page);
+  assert.match(await s.page.innerText('#convertQuoteResult'),/Ya se preparó una boleta de esta cotización que no está emitida/);assert.equal(await s.page.textContent('#convertQuoteConfirm'),'Abrir otra boleta igual');
+  // Mientras tanto la eliminaron en otro dispositivo.
+  await s.page.evaluate(id=>{window.__db.ao_quotes=window.__db.ao_quotes.filter(q=>q.id!==id);},qid(16));
+  await s.page.click('#convertQuoteConfirm');
+  await s.page.waitForFunction(()=>document.getElementById('convertQuoteMessage').textContent==='Esta cotización ya no existe: se eliminó en este u otro dispositivo.');
+  await s.page.waitForFunction(()=>!document.querySelector('#quotesRows tr[data-id="10000000-0000-4000-8000-000000000016"]'));
+  assert.equal(await s.page.isVisible('#quotesView'),true);
+  assert.deepEqual(s.errors,[]);await s.close();
+});
+
+test('Guardar una cotización ya guardada no pisa los cambios de otra persona ni revive una eliminada',{skip},async()=>{
+  const s=await open();
+  const save=(quote,id,base)=>s.page.evaluate(({quote,id,base})=>window.AOQuoteHost.save(quote,id,base),{quote,id,base});
+  const first=(await s.db('ao_quotes')).find(q=>q.number===18);
+  const saved=await save({...first.quote,notes:'Precios incluyen IGV.'},qid(18),first.updated_at);
+  assert.equal(saved.label,'COT-00018');assert.notEqual(saved.updatedAt,first.updated_at,'cada guardado es una versión nueva');
+  const write=(await s.calls(c=>c.table==='ao_quotes'&&['update','upsert'].includes(c.op))).at(-1);
+  assert.equal(write.op,'update','se guarda sobre la versión que se editaba');assert.equal('id' in write.payload,false);assert.equal('receipt_id' in write.payload,false);
+  // Otra persona ya guardó una versión más nueva: guardar desde la anterior se rechaza sin pisarla.
+  await assert.rejects(save({...first.quote,notes:'Versión vieja'},qid(18),first.updated_at),/Otra persona guardó cambios en esta cotización mientras la editabas\. Para no perder los tuyos, pulsa «Duplicar»/);
+  assert.equal((await s.db('ao_quotes')).find(q=>q.number===18).quote.notes,'Precios incluyen IGV.');
+  // Eliminada en otro dispositivo: no vuelve a aparecer con otro número.
+  const gone=(await s.db('ao_quotes')).find(q=>q.number===17);
+  await s.page.evaluate(id=>{window.__db.ao_quotes=window.__db.ao_quotes.filter(q=>q.id!==id);},qid(17));
+  await assert.rejects(save(gone.quote,qid(17),gone.updated_at),/Esta cotización fue eliminada \(en este u otro dispositivo\)\. Para conservarla, pulsa «Duplicar»/);
+  const after=await s.db('ao_quotes');
+  assert.equal(after.some(q=>q.id===qid(17)),false);assert.equal(Math.max(...after.map(q=>q.number)),18,'no se asignó un número nuevo');
+  await s.page.waitForFunction(()=>!document.querySelector('#quotesRows tr[data-id="10000000-0000-4000-8000-000000000017"]'));
+  // Una cotización nueva (sin versión) se guarda con upsert: reintentar no la duplica.
+  const fresh={...first.quote,customer:'Cliente nuevo'},id='20000000-0000-4000-8000-000000000009';
+  const a=await save(fresh,id,null),b=await save(fresh,id,null);
+  assert.equal(a.number,b.number);assert.equal((await s.calls(c=>c.op==='upsert')).length,2);
+  // Convertirla (enlazar su boleta) no cambia su versión: el editor puede seguir guardando.
+  const before=(await s.db('ao_quotes')).find(q=>q.id===id).updated_at;
+  await s.page.click(`#quotesRows tr[data-id="${id}"] [data-quote-action="convert"]`);await checked(s.page);await s.page.click('#convertQuoteCancel');
+  assert.equal((await s.db('ao_quotes')).find(q=>q.id===id).updated_at,before);
+  assert.deepEqual(s.errors,[]);await s.close();
+});
+
+test('Una cotización sin documento abre la boleta «Sin documento» y una con pendientes los mantiene a la vista',{skip},async()=>{
+  const s=await open();
+  await s.action(16,'convert');await checked(s.page);await s.page.click('#convertQuoteConfirm');
+  const frame=await s.receiptFrame();await frame.waitForFunction(()=>document.getElementById('customer').value==='Jorge Ramírez Ortiz');
+  assert.equal(await frame.inputValue('#docType'),'NONE');assert.equal(await frame.inputValue('#document'),'');assert.equal(await frame.isDisabled('#document'),true);
+  assert.equal(await frame.isHidden('#errorBox'),true,'no pide un DNI que la cotización no tiene');assert.equal(await frame.isHidden('#quoteNotice'),true);
+  assert.equal(await frame.textContent('#toast'),'Venta de la cotización COT-00016 lista. Revisa los datos y pulsa «Emitir y descargar».');
+  // COT-00017: 3 Ryzen con 2 en stock y un servicio. El servicio llega listo; el Ryzen queda marcado y su aviso, a la vista.
+  await s.page.click('[data-view="quotes"]');await s.action(17,'convert');await checked(s.page);await s.page.click('#convertQuoteConfirm');
+  await frame.waitForFunction(()=>document.getElementById('customer').value==='Lucía Fernández');
+  const notice=await frame.innerText('#quoteNotice');
+  assert.match(notice,/^Desde la cotización COT-00017: completa esto antes de emitir/);assert.match(notice,/RYZEN 7 7800X3D: cotizaste 3 y tienes 2 en stock\. En la boleta, producto 1: baja la cantidad a 2/);
+  assert.equal(await frame.getAttribute('#quantity-0','aria-invalid'),'true');
+  assert.match(await frame.textContent('[data-inventory="1"]'),/Productos seleccionados · 1 unidad/);
+  assert.equal(await frame.textContent('#toast'),'Venta de la cotización COT-00017 abierta: completa 1 producto antes de emitir.');
+  assert.deepEqual(s.errors,[]);await s.close();
+});
+
+test('Lista accesible: filtros con su cantidad, conteo anunciado, KPIs sin anuncios y una parada de teclado por acción',{skip},async()=>{
+  const s=await open();
+  for(const name of ['Todas (7)','Pendientes (4)','Por vencer (2)','Convertidas (1)','Vencidas (2)'])assert.equal(await s.page.getByRole('button',{name,exact:true}).count(),1,name);
+  assert.equal(await s.page.getAttribute('#quotesSummary','aria-live'),null,'los KPI no se vuelven a leer en cada tecla');
+  assert.deepEqual([await s.page.getAttribute('#quotesCount','role'),await s.page.getAttribute('#quotesCount','aria-live')],['status','polite']);
+  const stops=await s.page.$eval(`#quotesRows tr[data-id="${qid(18)}"]`,tr=>[...tr.querySelectorAll('button')].filter(b=>b.tabIndex>=0).map(b=>b.getAttribute('aria-label')));
+  assert.deepEqual(stops,['Abrir COT-00018','Convertir COT-00018 en boleta','Duplicar COT-00018','Eliminar la cotización COT-00018']);
+  // El número y el cliente siguen abriendo con el mouse.
+  await s.page.click(`#quotesRows tr[data-id="${qid(18)}"] .quote-client .quote-link`);
+  await s.page.waitForFunction(()=>document.getElementById('quoteFrame').contentWindow.opened?.length===1);
+  assert.deepEqual(s.errors,[]);await s.close();
+});
+
+test('En tarjetas (≤1200 px) las acciones de las tarjetas de una misma fila quedan alineadas',{skip},async()=>{
+  for(const width of [1024,768]){
+    const s=await open({width,height:900});
+    const cards=await s.page.$$eval('#quotesRows tr',trs=>trs.map(tr=>({top:Math.round(tr.getBoundingClientRect().top),actions:Math.round(tr.querySelector('.quote-actions').getBoundingClientRect().bottom),bottom:Math.round(tr.getBoundingClientRect().bottom)})));
+    const rows=new Map();for(const c of cards){if(!rows.has(c.top))rows.set(c.top,[]);rows.get(c.top).push(c);}
+    const shared=[...rows.values()].filter(list=>list.length>1);
+    assert.ok(shared.length>0,width+' px: hay tarjetas lado a lado');
+    for(const list of shared){assert.equal(new Set(list.map(c=>c.actions)).size,1,width+' px: acciones a la misma altura '+JSON.stringify(list));assert.ok(list.every(c=>c.bottom-c.actions<=12),width+' px: las acciones van al pie de la tarjeta');}
+    await s.close();
+  }
+});
+
+// ---------- Editor real (cotizacion.html) dentro del panel ----------
+async function editorOf(s,title){
+  await s.page.waitForFunction(t=>new RegExp(t).test(document.getElementById('quoteFrame').contentDocument?.getElementById('quoteTitle')?.textContent||''),title);
+  const frame=s.page.frame({url:/cotizacion\.html/});
+  await frame.waitForFunction(()=>!document.getElementById('downloadBtn').disabled);
+  return frame;
+}
+test('Editor: salir de una cotización con cambios sin guardar los conserva sin preguntar («Cancelar» nunca descarta)',{skip},async()=>{
+  const s=await open({editor:'real'}),dialogs=[];s.page.__onDialog=d=>{dialogs.push(d.message());d.dismiss();};
+  await s.action(18,'open');let editor=await editorOf(s,'COT-00018');
+  await editor.fill('#customer','Comercial Andina S.A.C. (sede Lima)');
+  await editor.click('#backBtn');
+  await s.page.waitForFunction(()=>!document.getElementById('quotesView').hidden);
+  assert.deepEqual(dialogs,[],'no hay un confirm cuyo «Cancelar» descarte');
+  assert.equal(await s.page.textContent('#suiteToast'),'Tus cambios sin guardar de COT-00018 quedaron en este dispositivo: ábrela para guardarlos.');
+  // Abrir otra y volver: los cambios se recuperan.
+  await s.action(16,'open');editor=await editorOf(s,'COT-00016');await editor.click('#backBtn');
+  await s.page.waitForFunction(()=>!document.getElementById('quotesView').hidden);
+  await s.action(18,'open');editor=await editorOf(s,'COT-00018');
+  await editor.waitForFunction(()=>document.getElementById('customer').value==='Comercial Andina S.A.C. (sede Lima)');
+  assert.equal(await editor.textContent('#toast'),'Recuperamos tus cambios sin guardar de COT-00018.');
+  // «Nueva» tampoco pregunta ni descarta.
+  await editor.click('#newBtn');await editorOf(s,'Nueva cotización');
+  assert.deepEqual(dialogs,[]);
+  assert.equal(await editor.textContent('#toast'),'Nueva cotización lista. Tus cambios sin guardar de COT-00018 quedaron en este dispositivo: ábrela para guardarlos.');
+  assert.equal((await s.db('ao_quotes')).find(q=>q.number===18).customer,'Comercial Andina S.A.C.','nada se guardó sin pedirlo');
+  assert.deepEqual(s.errors,[]);await s.close();
+});
+
+test('Editor: una cotización vencida avisa antes de descargar o compartir un PDF con la fecha pasada',{skip},async()=>{
+  const s=await open({editor:'real'}),dialogs=[];let answer=false;s.page.__onDialog=d=>{dialogs.push(d.message());answer?d.accept():d.dismiss();};
+  await s.action(15,'open');const editor=await editorOf(s,'COT-00015');
+  const expired=D(-5).split('-').reverse().join('/');
+  let downloads=0;s.page.on('download',()=>downloads++);
+  await editor.click('#downloadBtn');
+  assert.deepEqual(dialogs,[`Esta cotización venció el ${expired} y el PDF mostrará esa fecha. ¿Descargarla igual? Para enviarla vigente, pulsa «Duplicar»: la copia tiene la fecha de hoy.`]);
+  await s.page.waitForTimeout(300);assert.equal(downloads,0,'«Cancelar» no descarga');
+  await editor.click('#shareBtn');assert.match(dialogs[1],/¿Compartirla igual\?/);
+  answer=true;const download=s.page.waitForEvent('download');await editor.click('#downloadBtn');await download;
+  // Una vigente no pregunta.
+  await s.page.click('[data-view="quotes"]');await s.action(18,'open');const current=await editorOf(s,'COT-00018');
+  const second=s.page.waitForEvent('download');await current.click('#downloadBtn');await second;assert.equal(dialogs.length,3);
+  assert.deepEqual(s.errors,[]);await s.close();
+});
+
+test('Editor: una cotización convertida se ve de solo lectura, en modo claro y oscuro',{skip},async()=>{
+  for(const [theme,field] of [['light','rgb(246, 243, 249)'],['dark','rgb(22, 16, 28)']]){
+    const s=await open({editor:'real',theme});
+    await s.action(14,'open');const editor=await editorOf(s,'COT-00014');
+    const look=await editor.evaluate(()=>{const css=(id,pseudo)=>getComputedStyle(document.getElementById(id),pseudo);const box=id=>document.getElementById(id).getBoundingClientRect();
+      return {customer:css('customer').backgroundColor,description:css('description-0').backgroundColor,placeholder:css('email','::placeholder').color,disabled:document.getElementById('customer').disabled,
+        hints:['itemsHint','notesHint'].map(id=>document.getElementById(id).hidden),subtitle:document.getElementById('subtitle').textContent,
+        convert:Math.round(box('convertBtn').width),row:Math.round(document.querySelector('.finish-actions').getBoundingClientRect().width),label:document.getElementById('convertBtn').textContent};});
+    assert.deepEqual({...look,convert:undefined,row:undefined},{customer:field,description:field,placeholder:'rgba(0, 0, 0, 0)',disabled:true,hints:[true,true],subtitle:'Cotización convertida: solo lectura.',label:'Ver boleta',convert:undefined,row:undefined},theme);
+    assert.equal(look.convert,look.row,theme+': «Ver boleta» ocupa toda la fila');
+    // Al abrir una pendiente vuelve a ser editable.
+    await s.page.click('[data-view="quotes"]');await s.action(18,'open');const open18=await editorOf(s,'COT-00018');
+    assert.deepEqual(await open18.evaluate(()=>[document.getElementById('customer').disabled,document.getElementById('itemsHint').hidden,document.getElementById('subtitle').textContent]),[false,false,'Arma la propuesta para tu cliente. No aparta ni descuenta stock.']);
+    assert.deepEqual(s.errors,[]);await s.close();
+  }
+});
+
+test('Editor: los errores se ven en ambos temas, el aviso no pasa a la siguiente cotización y el botón del celular dice «Descargar PDF»',{skip},async()=>{
+  for(const [theme,invalid] of [['light','rgb(255, 250, 251)'],['dark','rgb(69, 34, 47)']]){
+    const s=await open({editor:'real',theme});
+    await s.page.click('#newQuote');const editor=await editorOf(s,'Nueva cotización');
+    assert.equal(await editor.textContent('#downloadMobileBtn'),'Descargar PDF','sin «Guardar y PDF» junto a «Guardar»');
+    await editor.click('#saveBtn');
+    assert.equal(await editor.textContent('#toast'),'Revisa los datos señalados antes de guardar.');
+    assert.equal(await editor.getAttribute('#description-0','aria-invalid'),'true');
+    assert.equal(await editor.$eval('#description-0',e=>getComputedStyle(e).backgroundColor),invalid,theme+': la descripción se ve marcada');
+    await editor.click('#backBtn');await s.page.waitForFunction(()=>!document.getElementById('quotesView').hidden);
+    await s.action(18,'open');const open18=await editorOf(s,'COT-00018');
+    assert.equal(await open18.isHidden('#toast'),true,'el aviso de la otra cotización no se arrastra');
+    assert.equal(await open18.textContent('#downloadMobileBtn'),'Descargar PDF');
+    assert.deepEqual(s.errors,[]);await s.close();
   }
 });
 

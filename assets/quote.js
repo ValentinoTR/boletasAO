@@ -57,6 +57,8 @@ function cleanPart(p){
  const part={source:p.source,name,price:(cents/100).toFixed(2)};
  if(p.source==='product'){const id=cleanText(p.productId).trim().slice(0,64);if(!id)return null;part.productId=id;}
  if(p.source==='loose'){const key=cleanText(p.key).slice(0,350);if(!key.trim())return null;part.key=key;}
+ // A pedido de un producto de tu web: se guarda cuál es, para tomarlo de tu stock si lo repones antes de convertirla.
+ if(p.source==='external'&&p.productId!=null){const id=cleanText(p.productId).trim().slice(0,64);if(id)part.productId=id;}
  return part;
 }
 const validId=id=>typeof id==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
@@ -163,7 +165,7 @@ function buildScenes(d,label='BORRADOR'){
  // Pie: importe en letras, total y condiciones (en varias páginas, el subtotal de cada una).
  rect(29,497,538,120,'#ffffff');const final=pi===groups.length-1;const words=final?(calc.withinLimit?amountInWords(calc.total):'REVISAR IMPORTE'):'CONTINÚA EN LA SIGUIENTE PÁGINA';text('SON:',38,517,8.2,'bold');const wordLines=wrapText(words,316,9.4);wordLines.forEach((v,i)=>text(v,64.3,517+i*11.5,9.4));text(final?'IMPORTE TOTAL':'SUBTOTAL PÁGINA',391,517,8.1,'bold');fitText(formatMoney(final?(calc.withinLimit?calc.total:0):group.reduce((s,r)=>s+r.amount,0)),566.5,517,85,10,'regular','right');
  const boxY=Math.max(535,517+(wordLines.length-1)*11.5+17);const all=final?(d.notes.trim()?noteLines(d.notes):[]):['La cotización continúa en la siguiente página.'];const lines=all.length>MAX_NOTE_LINES?[...all.slice(0,MAX_NOTE_LINES-1),'[Acorta las condiciones antes de descargar]']:all;const boxHeight=Math.max(56,25+lines.length*12);rect(31,boxY,532,boxHeight,'#ffffff','#7035b2',.8);text('CONDICIONES:',39,boxY+18,8.2,'bold');lines.forEach((v,i)=>text(v,NOTES_X,boxY+18+i*12,NOTES_SIZE));
- if(final){const fy=boxY+boxHeight+24;fitText(`Cotización válida hasta el ${formatDate(d.validUntil)}. Precios en soles sujetos a disponibilidad de stock.`,PAGE_W/2,fy,500,8.6,'italic','center','#5f5a66');text('Documento informativo: no es un comprobante de pago.',PAGE_W/2,fy+12.5,8.6,'italic','#5f5a66','center');text('Gracias por tu preferencia.',PAGE_W/2,fy+34,10.5,'bold','#7035b2','center');}
+ if(final){const fy=boxY+boxHeight+24;fitText(`Cotización válida hasta el ${formatDate(d.validUntil)}.`,PAGE_W/2,fy,500,8.6,'italic','center','#5f5a66');text('Documento informativo: no es un comprobante de pago.',PAGE_W/2,fy+12.5,8.6,'italic','#5f5a66','center');text('Gracias por tu preferencia.',PAGE_W/2,fy+34,10.5,'bold','#7035b2','center');}
  if(groups.length>1)text(`Página ${pi+1} de ${groups.length}`,566,813,8,'regular','#777777','right');return ops;});
 }
 function sceneSVG(ops,title){return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PAGE_W} ${PAGE_H}" role="img" aria-label="${escapeXML(title)}"><rect width="100%" height="100%" fill="white"/><image href="${TEMPLATE}" x="3.337059" y="4.25354" width="593.47363" height="838.065735"/>`+ops.map(o=>o.type==='rect'?`<rect x="${o.x}" y="${o.y}" width="${o.w}" height="${o.h}" fill="${o.fill}"${o.stroke?` stroke="${o.stroke}" stroke-width="${o.lineWidth}"`:''}/>`:`<text x="${o.x}" y="${o.y}" font-family="AOReceipt, Arial, Helvetica, sans-serif" font-size="${o.size}" font-weight="${o.font==='bold'?'700':'400'}" font-style="${o.font==='italic'?'italic':'normal'}" fill="${o.color}">${escapeXML(o.value)}</text>`).join('')+'</svg>';}
@@ -197,7 +199,7 @@ function setButton(button,iconName,label){button.innerHTML=(iconName?icon(iconNa
 function renderButtons(){
  const needsSave=!readOnly&&(!row||dirty),clean=!!row&&!dirty&&!readOnly,locked=!ready||!!busy,idle=id=>busy?.id!==id;
  for(const id of ['downloadBtn','downloadBottomBtn'])if(idle(id))setButton($(id),'download',needsSave?'Guardar y descargar PDF':'Descargar PDF');
- if(idle('downloadMobileBtn'))$('downloadMobileBtn').textContent=needsSave?'Guardar y PDF':'Descargar PDF';
+ if(idle('downloadMobileBtn'))$('downloadMobileBtn').textContent='Descargar PDF';
  if(idle('shareBtn'))setButton($('shareBtn'),'share','Compartir por WhatsApp');
  if(idle('saveBtn'))setButton($('saveBtn'),clean?'check':'save',clean?'Guardada':'Guardar');
  if(idle('convertBtn'))setButton($('convertBtn'),'receipt',readOnly?'Ver boleta':'Convertir en boleta');
@@ -236,8 +238,9 @@ function updateDocumentField(){const [label,placeholder,max,mode]=DOC_FIELD[data
 function stockBadge(item){
  if(!item.parts.length||readOnly)return '';
  let groups=[];try{groups=host.quoteStock?.(item.parts)||[];}catch(e){return '';}
- const stock=groups.filter(g=>g.source!=='external'&&Number.isFinite(g.inStock)),pending=groups.filter(g=>g.source==='external');
- const short=stock.filter(g=>g.quoted>g.inStock),detail=groups.map(g=>g.source==='external'?`${g.name}: a pedido (no está en tu stock)`:`${g.name}: cotizas ${g.quoted} y tienes ${g.inStock??'?'} en stock`).join('\n');
+ // Lo cotizado a pedido que ya repusiste cuenta como stock (al convertirla se toma de tu stock).
+ const stock=groups.filter(g=>Number.isFinite(g.inStock)),pending=groups.filter(g=>g.source==='external'&&!Number.isFinite(g.inStock));
+ const short=stock.filter(g=>g.quoted>g.inStock),detail=groups.map(g=>g.source==='external'&&!Number.isFinite(g.inStock)?`${g.name}: a pedido (no está en tu stock)`:`${g.name}: cotizas ${g.quoted} y tienes ${g.inStock??'?'} en stock`).join('\n');
  const badge=(kind,text)=>`<span class="stock-badge ${kind}" title="${escapeXML(detail)}">${escapeXML(text)}</span>`;
  if(!stock.length)return pending.length?badge('wait','A pedido'):'';
  if(short.length)return stock.length===1&&!pending.length?badge('warn',`Cotizas ${short[0].quoted} · tienes ${short[0].inStock}`):badge('warn',short.length===1?`Falta stock: ${short[0].name}`:`Falta stock en ${short.length} productos`);
@@ -248,7 +251,9 @@ function refreshBadges(){data.items.forEach((item,i)=>{const slot=$(`badge-${i}`
 function itemHTML(item,index){const v=k=>escapeXML(item[k]);const bundle=item.mode==='bundle'&&item.parts.length>0,n=item.parts.length;
  return `<article class="item" data-index="${index}"><div class="item-head"><span class="item-title"><span class="item-n">${String(index+1).padStart(2,'0')}</span> Producto</span><span class="item-tools"><span id="badge-${index}">${stockBadge(item)}</span><button type="button" class="delete-item" data-remove="${index}" aria-label="Eliminar producto ${index+1}">Eliminar</button></span></div><div class="item-body"><button type="button" class="btn btn-outline pick-btn" data-pick="${index}">${icon('box')}${n?`${bundle?'Componentes elegidos':'Productos elegidos'} · ${n} ${n===1?'unidad':'unidades'} · Cambiar`:'Elegir de mi stock'}</button><div class="item-desc"><div class="field"><label for="description-${index}">Descripción del producto</label><textarea id="description-${index}" data-item="description" rows="2" maxlength="350" placeholder="Ej. Ryzen 7 7800X3D o Armado y configuración">${v('description')}</textarea></div><div class="field"><label for="code-${index}">Código <span class="optional">· opcional</span></label><input id="code-${index}" data-item="code" maxlength="22" value="${v('code')}" placeholder="Ej. CPU-01"></div></div><div class="item-numbers"><div class="field"><label for="quantity-${index}">Cantidad</label><input id="quantity-${index}" data-item="quantity" inputmode="numeric" maxlength="4" value="${v('quantity')}" placeholder="1"${bundle?' readonly title="Un grupo de componentes es una computadora. Para cotizar otra, agrega otro producto."':''}></div><div class="field"><label for="unit-${index}">U. M.</label><input id="unit-${index}" data-item="unit" maxlength="5" value="${v('unit')}" placeholder="NIU" aria-label="Unidad de medida del producto ${index+1}"></div><div class="field"><label for="price-${index}">Precio unit. (S/)</label><input id="price-${index}" data-item="price" inputmode="decimal" maxlength="12" value="${v('price')}" placeholder="0.00"></div><div class="field"><label>Importe</label><output class="line-total" id="amount-${index}">S/ 0.00</output></div></div></div></article>`;}
 function renderItems(){$('items').innerHTML=data.items.map(itemHTML).join('');$('itemCount').textContent=`${data.items.length} ${data.items.length===1?'PRODUCTO':'PRODUCTOS'}`;applyReadOnly();}
-function applyReadOnly(){document.querySelectorAll('[data-field],[data-item],[data-remove],[data-pick]').forEach(el=>el.disabled=readOnly);document.querySelectorAll('[data-remove],[data-pick]').forEach(el=>el.hidden=readOnly);$('addBtn').disabled=readOnly;$('addBtn').hidden=readOnly;$('clientHint').hidden=readOnly||!clientList.length;updateDocumentField();}
+const SUBTITLE='Arma la propuesta para tu cliente. No aparta ni descuenta stock.';
+// Convertida: los campos se ven como texto fijo y se ocultan las ayudas para editar.
+function applyReadOnly(){document.querySelectorAll('[data-field],[data-item],[data-remove],[data-pick]').forEach(el=>el.disabled=readOnly);document.querySelectorAll('[data-remove],[data-pick]').forEach(el=>el.hidden=readOnly);$('addBtn').disabled=readOnly;$('addBtn').hidden=readOnly;$('clientHint').hidden=readOnly||!clientList.length;for(const id of ['itemsHint','notesHint'])$(id).hidden=readOnly;$('subtitle').textContent=readOnly?'Cotización convertida: solo lectura.':SUBTITLE;document.body.classList.toggle('is-readonly',readOnly);updateDocumentField();}
 function displayErrors(errors){document.querySelectorAll('[aria-invalid="true"]').forEach(el=>el.removeAttribute('aria-invalid'));errors.forEach(e=>$(e.id)?.setAttribute('aria-invalid','true'));$('errorBox').hidden=!errors.length;$('errorBox').innerHTML=errors.length?'<strong>Revisa estos datos:</strong><ul>'+[...new Set(errors.map(e=>e.msg))].map(m=>`<li>${escapeXML(m)}</li>`).join('')+'</ul>':'';}
 function showProblem(message){$('errorBox').textContent=message;$('errorBox').hidden=false;toast(message);}
 function update(){const calc=calculate(data);calc.rows.forEach((r,i)=>{if($(`amount-${i}`))$(`amount-${i}`).textContent=r.amount<=MAX_CENTS?formatMoney(r.amount):'Revisar importe';});$('total').textContent=calc.withinLimit?formatMoney(calc.total):'Revisar importes';$('words').textContent=calc.withinLimit?amountInWords(calc.total):'El total supera el límite permitido.';if(showErrors)displayErrors(validate(data));clearTimeout(previewTimer);if(ready)previewTimer=setTimeout(refreshPreview,90);}
@@ -260,7 +265,7 @@ function markDirty(){if(readOnly)return;dirty=true;if(!row){data.date=today();da
 function loadState({quote,id,saved=null,unsaved=false}){
  session++;clearTimeout(draftTimer);data=structuredClone(quote);quoteId=id;row=saved;dirty=unsaved;readOnly=row?.status==='converted';
  if(!row){data.date=today();data.validUntil=addDays(data.date,data.validDays);}
- showErrors=false;pageIndex=0;lastClient=null;displayErrors([]);$('shareStatus').hidden=true;hydrate();if(dirty||!row)storeDraft();
+ showErrors=false;pageIndex=0;lastClient=null;displayErrors([]);$('shareStatus').hidden=true;clearTimeout(toastTimer);$('toast').hidden=true;hydrate();if(dirty||!row)storeDraft();
  document.scrollingElement?.scrollTo?.(0,0);refreshClients();
 }
 const blankState=()=>({quote:emptyQuote(rememberedNotes()),id:crypto.randomUUID()});
@@ -305,7 +310,7 @@ async function saveQuote({quiet=false}={}){
  if(errors.length){const field=$(errors[0].id);field?.focus({preventScroll:true});field?.scrollIntoView({behavior:'smooth',block:'center'});toast('Revisa los datos señalados antes de guardar.');return null;}
  const snapshot=structuredClone(data),id=quoteId,current=session;
  const run=async()=>{
-  try{const saved=normalizeRow(await host.save(structuredClone(snapshot),id),snapshot);
+  try{const saved=normalizeRow(await host.save(structuredClone(snapshot),id,row?.id===id?row.updatedAt:null),snapshot);
    forgetDraft(id);try{localStorage.setItem(NOTES_KEY,snapshot.notes);}catch(e){}try{host.saved?.(saved);}catch(e){}
    if(current!==session)return saved;
    row=saved;quoteId=saved.id;dirty=JSON.stringify(data)!==JSON.stringify(snapshot);readOnly=saved.status==='converted';if(dirty)storeDraft();
@@ -320,8 +325,10 @@ const ensureSaved=()=>readOnly||row&&!dirty?Promise.resolve(row):saveQuote({quie
 // Bloquea los botones mientras se guarda o se prepara el PDF; el botón pulsado indica qué pasa.
 async function withBusy(button,label,task){if(busy||!ready)return;busy={id:button.id};button.textContent=label;renderButtons();try{return await task();}catch(e){showProblem(e?.message||'No se pudo completar la acción.');}finally{busy=null;renderButtons();}}
 async function buildPDF(){const saved=await ensureSaved();if(!saved)return null;const snapshot=structuredClone(data),label=saved.label;return {snapshot,label,bytes:await generatePDF(snapshot,label)};}
-function downloadPDF(e){return withBusy(e.currentTarget,readOnly||row&&!dirty?'Preparando PDF…':'Guardando…',async()=>{const pdf=await buildPDF();if(!pdf)return;download(pdf.bytes,pdfFilename(pdf.snapshot,pdf.label),'application/pdf');toast(`PDF de ${pdf.label} descargado.`);});}
-function sharePDF(e){return withBusy(e.currentTarget,'Preparando…',async()=>{
+// Una cotización vencida se puede descargar o compartir, pero el PDF mostrará la fecha pasada: se avisa antes.
+function confirmExpired(action){if(readOnly||!row||daysBetween(today(),data.validUntil)>=0)return true;return confirm(`Esta cotización venció el ${formatDate(data.validUntil)} y el PDF mostrará esa fecha. ¿${action} igual? Para enviarla vigente, pulsa «Duplicar»: la copia tiene la fecha de hoy.`);}
+function downloadPDF(e){if(!confirmExpired('Descargarla'))return;return withBusy(e.currentTarget,readOnly||row&&!dirty?'Preparando PDF…':'Guardando…',async()=>{const pdf=await buildPDF();if(!pdf)return;download(pdf.bytes,pdfFilename(pdf.snapshot,pdf.label),'application/pdf');toast(`PDF de ${pdf.label} descargado.`);});}
+function sharePDF(e){if(!confirmExpired('Compartirla'))return;return withBusy(e.currentTarget,'Preparando…',async()=>{
  const pdf=await buildPDF();if(!pdf)return;const filename=pdfFilename(pdf.snapshot,pdf.label),text=shareText(pdf.snapshot,pdf.label);
  let file=null;try{file=new File([pdf.bytes],filename,{type:'application/pdf'});}catch(err){}
  if(file&&navigator.canShare?.({files:[file]})){try{await navigator.share({files:[file],title:`Cotización ${pdf.label}`,text});return;}catch(err){if(err?.name==='AbortError')return;}}
@@ -332,25 +339,25 @@ function sharePDF(e){return withBusy(e.currentTarget,'Preparando…',async()=>{
 });}
 function viewReceipt(){if(row)Promise.resolve().then(()=>host.viewReceipt(row.id)).catch(err=>toast(err?.message||'No se pudo abrir la boleta.'));}
 function convertQuote(e){if(readOnly){viewReceipt();return;}return withBusy(e.currentTarget,'Guardando…',async()=>{const saved=await ensureSaved();if(!saved)return;await host.convert(saved.id);});}
-// Cambios sin guardar de una cotización guardada antes de salir de ella: guardarlos o descartarlos.
-async function settleEdits(action){if(!row||!dirty||readOnly)return true;if(confirm(`¿Guardar los cambios de ${row.label} antes de ${action}? Si eliges «Cancelar», se descartan.`))return !!(await withBusy($('saveBtn'),'Guardando…',()=>saveQuote()));forgetDraft(row.id);dirty=false;return true;}
 function duplicateCurrent(){
  if(!row||busy)return;const fresh=readDrafts().fresh;
  if(fresh&&hasContent(normalizeSafe(fresh.quote))&&!confirm('Tienes otra cotización nueva sin guardar. ¿Reemplazarla por esta copia?'))return;
  const label=row.label,source=structuredClone(data);if(dirty)forgetDraft(row.id);
  loadState({quote:duplicateQuote(source),id:crypto.randomUUID(),unsaved:true});$('customer').focus({preventScroll:true});toast(`Copia de ${label} lista, con fecha de hoy. Revisa los precios y guárdala.`);
 }
-async function startNew(){
+// Al salir de una cotización guardada con cambios sin guardar, esos cambios se conservan en este dispositivo (nunca se descartan
+// sin preguntar): al volver a abrirla se recuperan para guardarlos. Igual que al salir por el menú del panel.
+const keptNote=()=>row&&dirty&&!readOnly?`Tus cambios sin guardar de ${row.label} quedaron en este dispositivo: ábrela para guardarlos.`:'';
+function startNew(){
  if(busy)return;
  if(!row){if(hasContent(data)&&!confirm('¿Empezar una cotización nueva? Se descartará la que no guardaste.'))return;forgetDraft(quoteId);loadState(blankState());}
- else{if(!(await settleEdits('empezar una nueva')))return;if(restoreFresh()){toast('Recuperamos la cotización nueva que no guardaste.');return;}loadState(blankState());}
+ else{const note=keptNote();storeDraft();if(restoreFresh()){toast('Recuperamos la cotización nueva que no guardaste.'+(note?' '+note:''));return;}loadState(blankState());if(note){$('customer').focus({preventScroll:true});toast('Nueva cotización lista. '+note);return;}}
  $('customer').focus({preventScroll:true});toast('Nueva cotización lista.');
 }
-async function goBack(){
+function goBack(){
  if(busy)return;
- if(row&&dirty&&!readOnly){if(!(await settleEdits('volver a la lista')))return;if(dirty===false&&row)loadState({quote:normalizeSafe(row.quote),id:row.id,saved:row});}
- else if(!row)storeDraft();
- host.back();
+ const note=keptNote();if(dirty||!row)storeDraft();
+ host.back(note);
 }
 async function pickProducts(index,button){
  if(readOnly||button.dataset.busy)return;button.dataset.busy='1';button.disabled=true;const current=session;

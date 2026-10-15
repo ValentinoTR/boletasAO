@@ -151,5 +151,25 @@ begin
   if not rejected then raise exception 'anon puede crear cotizaciones'; end if;
 end;
 $$;
+-- La versión (updated_at) con la que guarda el editor: enlazar la boleta preparada no la cambia, la app no la puede fijar
+-- y editar sí la cambia. Como now() es fijo en la transacción, la cotización parte de una versión antigua.
+reset role;
+do $$
+declare q uuid:=gen_random_uuid(); v timestamptz;
+begin
+  alter table public.ao_quotes disable trigger ao_quotes_stamp;
+  insert into public.ao_quotes(id,number,quote,customer,total_cents,quote_date,valid_until,updated_at)
+    values(q,(select coalesce(max(number),0)+1 from public.ao_quotes),'{"version":1}','PRUEBA VERSION',100,'2026-10-14','2026-10-21','2000-01-01');
+  alter table public.ao_quotes enable trigger ao_quotes_stamp;
+  update public.ao_quotes set receipt_id=gen_random_uuid() where id=q;
+  update public.ao_quotes set receipt_id=null where id=q;
+  update public.ao_quotes set updated_at='2001-01-01' where id=q;
+  select updated_at into v from public.ao_quotes where id=q;
+  if v<>'2000-01-01' then raise exception 'Enlazar la boleta o enviar updated_at cambió la versión: %',v; end if;
+  update public.ao_quotes set customer='PRUEBA VERSION EDITADA' where id=q;
+  select updated_at into v from public.ao_quotes where id=q;
+  if v<>now() then raise exception 'Editar la cotización no cambió su versión: %',v; end if;
+end;
+$$;
 rollback;
 select true as quote_tests_passed;
