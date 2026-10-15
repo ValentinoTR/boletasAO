@@ -29,7 +29,7 @@ test('Inventario incluye cantidades del catálogo anterior sin duplicar las unid
   c.input=[purchase([component(1),component(2,500),component(3,null,{inStock:false})])];
   vm.runInContext('combos=input',c);
   const groups=vm.runInContext('getInventoryGroups()',c);
-  assert.equal(groups.length,2);assert.equal(groups[0].name,'Placa');assert.equal(groups[0].stock,4);assert.equal(groups[0].items.length,1);assert.equal(groups[0].costoProm,null,'No inventar costo para el catálogo sin compras');assert.equal(groups[1].stock,4);
+  assert.equal(groups.length,2);assert.equal(groups[0].name,'Placa');assert.equal(groups[0].stock,4);assert.equal(groups[0].items.length,1);assert.equal(Math.round(groups[0].costoProm*100)/100,333.33,'El costo de Compras se usa como referencia para todo el stock');assert.equal(groups[0].missing,0);assert.equal(groups[1].stock,4);assert.equal(groups[1].costoProm,null,'Sin compras no se inventa un costo');
 });
 test('Inventario conserva productos agotados y excluye compras de venta sin stock',()=>{
   const c=runtime([{id:10,name:'Placa',managed:true,stock:1}]);
@@ -60,4 +60,12 @@ test('El inventario usa la web para el conteo y no confunde revisiones o fichas 
   assert.equal(groups.find(g=>g.productId===1).items.length,1,'Nombre con mismo modelo y revisión en distinto orden');
   assert.equal(groups.find(g=>g.productId===2).items.length,0,'No mezclar WIFI II y WIFI');
   assert.equal(groups.filter(g=>g.name==='SSD 1TB').reduce((n,g)=>n+g.items.length,0),0,'No asignar compras a una ficha ambigua');
+});
+test('Inventario: costo de Compras (también para unidades registradas sin costo) y precio de la web',()=>{
+  const c=runtime([{id:10,name:'Placa',managed:true,stock:2,webPrice:900}]);
+  // Compra antigua con costo real ya vendida y unidades actuales registradas sin costo (S/ 0.00).
+  c.input=[{...purchase([component(1,850,{productId:10,saleCost:600})]),fechaCompra:'2026-01-01'},{...purchase([component(2,null,{productId:10,costo:0}),component(3,null,{productId:10,costo:0})]),id:'2',cost:0,proveedor:'Stock inicial (catálogo anterior)',fechaCompra:'2026-02-01'}];
+  vm.runInContext('combos=input',c);
+  const g=vm.runInContext('getInventoryGroups()[0]',c);
+  assert.equal(g.costoProm,600);assert.equal(g.ventaProm,900);assert.equal(g.ganancia,600);assert.equal(g.missing,0);
 });

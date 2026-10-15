@@ -956,7 +956,7 @@
           <div class="table-wrap">
             <p id="inventory-status" class="card-sub" role="status" aria-live="polite" style="padding:0 20px"></p>
             <table class="data-table" id="tabla-inventario">
-              <thead><tr><th>Producto</th><th class="num">Stock</th><th class="num">Costo real</th><th class="num">Venta sugerida</th><th class="num">Ganancia proyectada</th><th class="num"><span class="sr-only">Acciones</span></th></tr></thead>
+              <thead><tr><th>Producto</th><th class="num">Stock</th><th class="num">Costo (Compras)</th><th class="num">Precio web</th><th class="num">Ganancia proyectada</th><th class="num"><span class="sr-only">Acciones</span></th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -2378,7 +2378,9 @@ function stockProducts(){return window.parent.AOSuite?.stockProducts?.()||[];}
 function getInventoryGroups(){
   const products=stockProducts(),map=new Map();
   const nameKey=name=>String(name||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('es').match(/[a-z0-9]+/g)?.sort().join(' ')||'';
-  const names=new Map();
+  const names=new Map(),costByProduct=new Map(),costByName=new Map();
+  // Costo de referencia: el último costo mayor a 0 registrado en Compras para ese producto (vendido o no).
+  [...combos].sort((a,b)=>String(a.fechaCompra||'').localeCompare(String(b.fechaCompra||''))||Number(a.id)-Number(b.id)).forEach(combo=>{if(combo.proveedor==='Venta sin stock')return;comboDerived(combo).comps.forEach(comp=>{if(!(comp.costoFinal>0))return;if(comp.productId)costByProduct.set(String(comp.productId),comp.costoFinal);costByName.set(nameKey(comp.name),comp.costoFinal);});});
   products.forEach(p=>{const key=nameKey(p.name);if(!names.has(key))names.set(key,[]);names.get(key).push(p);map.set(String(p.id),{name:p.name,productId:p.id,stock:p.stock,managed:p.managed,webPrice:p.webPrice,items:[]});});
   combos.forEach(combo=>comboDerived(combo).comps.forEach(comp=>{
     if(comp.sale!==null||!comp.inStock||combo.proveedor==='Venta sin stock')return;
@@ -2389,8 +2391,11 @@ function getInventoryGroups(){
   return Array.from(map.values()).map(g=>{
     // Compras ayuda a identificar costos; nunca aumenta la cantidad publicada.
     const items=g.items.sort((a,b)=>Number(b.linked)-Number(a.linked)).slice(0,g.stock);
-    const missing=g.stock-items.length,costoTotal=items.reduce((s,i)=>s+i.costo,0),costoProm=g.stock&&!missing?costoTotal/g.stock:null;
-    const prices=items.map(i=>i.sugerido).filter(v=>v!==null),ventaProm=prices.length?prices.reduce((s,v)=>s+v,0)/prices.length:null;
+    // Costo: el de tus unidades en Compras (las registradas sin costo usan el último costo de Compras de ese producto).
+    const costs=items.map(i=>i.costo).filter(c=>c>0),ref=costByProduct.get(String(g.productId))??costByName.get(nameKey(g.name))??null;
+    const costoProm=costs.length?costs.reduce((s,c)=>s+c,0)/costs.length:ref,missing=g.stock&&costoProm===null?g.stock:0,costoTotal=costoProm!==null?costoProm*g.stock:0;
+    // Precio de venta: el publicado en tu web.
+    const prices=items.map(i=>i.sugerido).filter(v=>v!==null),ventaProm=Number(g.webPrice)>0?Number(g.webPrice):prices.length?prices.reduce((s,v)=>s+v,0)/prices.length:null;
     return {...g,items,missing,costoTotal,costoProm,ventaProm,ganancia:ventaProm!==null&&costoProm!==null?(ventaProm-costoProm)*g.stock:null,algunoEstimado:items.some(i=>i.estimado)};
   }).sort((a,b)=>a.name.localeCompare(b.name,'es'));
 }
@@ -2411,7 +2416,7 @@ function renderInventario(){
   document.getElementById('inv-valor').textContent=fmt(available.reduce((n,g)=>n+g.costoTotal,0))+(available.some(g=>g.missing)?' (parcial)':'');
   document.getElementById('inv-proyectada').textContent=available.some(g=>g.ganancia===null)?'—':fmtSigned(available.reduce((n,g)=>n+g.ganancia,0));
   const body=document.querySelector('#tabla-inventario tbody');
-  body.innerHTML=groups.length?groups.map((g,i)=>`<tr><td><div class="strong">${escapeHtml(g.name)}</div>${g.missing?`<div class="sub">Costo pendiente para ${g.missing} ${plural(g.missing,'unidad','unidades')}</div>`:''}</td><td class="num"><span class="badge ${g.stock?'neutral':'pendiente'}">${g.stock||'Para reponer'}</span></td><td class="num">${g.costoProm!==null?fmt(g.costoProm):'—'}</td><td class="num">${g.ventaProm!==null?fmt(g.ventaProm):'—'}</td><td class="num ${moneyClass(g.ganancia)}">${g.ganancia!==null?fmtSigned(g.ganancia):'—'}</td><td><div class="row-actions"><button class="btn btn-secondary btn-sm inv-stock" data-idx="${i}">Modificar stock</button><button class="btn btn-soft btn-sm inv-restock" data-idx="${i}">Reponer</button>${g.items.length?`<button class="btn btn-secondary btn-sm inv-edit" data-idx="${i}">Precio sugerido</button>`:''}${g.stock?`<button class="btn btn-soft btn-sm inv-vender" data-idx="${i}">Vender</button>`:''}</div></td></tr>`).join(''):emptyRow(6,'package',inventoryMode==='replenish'?'No hay productos para reponer':'No hay unidades disponibles','Registra una compra o repón un producto existente.');
+  body.innerHTML=groups.length?groups.map((g,i)=>`<tr><td><div class="strong">${escapeHtml(g.name)}</div></td><td class="num"><span class="badge ${g.stock?'neutral':'pendiente'}">${g.stock||'Para reponer'}</span></td><td class="num">${g.costoProm!==null?fmt(g.costoProm):'—'}</td><td class="num">${g.ventaProm!==null?fmt(g.ventaProm):'—'}</td><td class="num ${moneyClass(g.ganancia)}">${g.ganancia!==null?fmtSigned(g.ganancia):'—'}</td><td><div class="row-actions"><button class="btn btn-secondary btn-sm inv-stock" data-idx="${i}">Modificar stock</button><button class="btn btn-soft btn-sm inv-restock" data-idx="${i}">Reponer</button>${g.stock?`<button class="btn btn-soft btn-sm inv-vender" data-idx="${i}">Vender</button>`:''}</div></td></tr>`).join(''):emptyRow(6,'package',inventoryMode==='replenish'?'No hay productos para reponer':'No hay unidades disponibles','Registra una compra o repón un producto existente.');
   body.querySelectorAll('.inv-stock,.inv-restock').forEach(b=>b.addEventListener('click',()=>window.parent.AOSuite?.openStockGroup(lastInventoryGroups[Number(b.dataset.idx)],b.classList.contains('inv-restock'))));
   body.querySelectorAll('.inv-edit,.inv-vender').forEach(b=>b.addEventListener('click',()=>{const g=lastInventoryGroups[Number(b.dataset.idx)];b.classList.contains('inv-edit')?inventarioEditar(g.name,g.productId):inventarioRegistrarVenta(g.name,g.productId);}));
 }

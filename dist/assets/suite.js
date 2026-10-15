@@ -42,7 +42,7 @@
   async function initialize(client,person) {
     ++generation; db=client; member=person; loading=null;publicCatalog=new Map();catalogReady=false;catalogError="";
     $("connectionNav").hidden=member.role!=="owner"; $("importForm").hidden=member.role!=="owner";
-    if(!$("accountingFrame").getAttribute("src"))$("accountingFrame").src="accounting.html?v=20261014-public-stock";
+    if(!$("accountingFrame").getAttribute("src"))$("accountingFrame").src="accounting.html?v=20261015-costo-web";
     await refresh();
   }
   async function refreshAfterMutation() {
