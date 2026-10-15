@@ -441,7 +441,7 @@
   .buyer-line{display:flex;align-items:center;gap:5px;}
   .buyer-line .i{width:12px;height:12px;}
   .add-comp{
-    display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) auto;gap:8px;
+    display:grid;grid-template-columns:minmax(0,2fr) 92px minmax(0,1fr) minmax(0,1fr) auto;gap:8px;
     padding:12px 20px;background:var(--surface-2);border-top:1px solid var(--border);
   }
   .add-comp input{height:34px;font-size:13px;}
@@ -1632,14 +1632,15 @@ function renderCompras(){
       <div class="combo-body">
         ${compsHtml}
         <div class="add-comp">
-          <input type="text" class="ac-name" placeholder="Nombre del componente" data-cid="${c.id}" aria-label="Nombre del componente" autocomplete="off">
+          <input type="text" class="ac-name" placeholder="Nombre del producto (como en tu web)" data-cid="${c.id}" aria-label="Nombre del componente" autocomplete="off" list="ac-web-products">
+          <input type="number" class="ac-qty" placeholder="Cant. 1" min="1" max="1000" step="1" inputmode="numeric" data-cid="${c.id}" aria-label="Unidades que trajiste" title="¿Cuántas unidades de este producto trajiste?">
           <div class="input-affix sm"><span class="affix">S/</span><input type="number" class="ac-costo" placeholder="Costo (opcional)" step="0.01" min="0" inputmode="decimal" data-cid="${c.id}" aria-label="Costo del componente"></div>
           <div class="input-affix sm"><span class="affix">S/</span><input type="number" class="ac-sale" placeholder="Venta (opcional)" step="0.01" min="0" inputmode="decimal" data-cid="${c.id}" aria-label="Precio de venta"></div>
           <button class="btn btn-soft ac-add" data-cid="${c.id}">${icon('plus')}Agregar</button>
         </div>
       </div>
     </article>`;
-  }).join('');
+  }).join('') + `<datalist id="ac-web-products">${stockProducts().map(p=>`<option value="${escapeHtml(p.name)}">`).join('')}</datalist>`;
 
   container.querySelectorAll('.combo-toggle').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1772,8 +1773,9 @@ async function addComponent(cid, btn){
     return;
   }
 
-  const countRaw=prompt('¿Cuántas unidades de '+name+' estás trayendo?','1');if(countRaw===null)return;
-  const componentQuantity=Number(countRaw);if(!/^\d+$/.test(countRaw.trim())||!Number.isInteger(componentQuantity)||componentQuantity<1||componentQuantity>1000){toast('Indica una cantidad entera entre 1 y 1000.','error');return;}
+  // Cantidad de unidades que trajiste de este producto (vacío = 1).
+  const qtyInput=document.querySelector(`.ac-qty[data-cid="${cid}"]`),countRaw=(qtyInput?.value||'1').trim();
+  const componentQuantity=Number(countRaw);if(!/^\d+$/.test(countRaw)||componentQuantity<1||componentQuantity>1000){qtyInput?.focus();toast('Indica una cantidad entera entre 1 y 1000.','error');return;}
   const costoRaw = costoInput.value.trim();
   const costo = costoRaw === '' ? null : parseFloat(costoRaw);
   const saleRaw = saleInput.value.trim();
@@ -1785,22 +1787,29 @@ async function addComponent(cid, btn){
     precio_venta: sale !== null && !isNaN(sale) ? sale : null,
     costo: costo !== null && !isNaN(costo) ? costo : null
   };
-  if(payload.precio_venta !== null){
+  // Con precio de venta y varias unidades: solo las que ya vendiste quedan vendidas; las demás siguen en stock.
+  let soldCount=payload.precio_venta!==null?componentQuantity:0;
+  if(payload.precio_venta!==null&&componentQuantity>1){
+    const soldRaw=prompt('Trajiste '+componentQuantity+' unidades de '+name+'. ¿Cuántas ya vendiste a S/ '+payload.precio_venta.toFixed(2)+'? Las demás quedan en stock.','1');if(soldRaw===null)return;
+    soldCount=Number(soldRaw.trim());if(!/^\d+$/.test(soldRaw.trim())||soldCount>componentQuantity){toast('Indica cuántas vendiste: entre 0 y '+componentQuantity+'.','error');return;}
+  }
+  if(payload.precio_venta !== null&&soldCount>0){
     payload.fecha_venta = new Date().toISOString();
     const buyer = await askBuyer(name, payload.precio_venta);
     if(buyer) Object.assign(payload, buyer);
   }
 
   setBusy(btn, true, 'Agregando...');
-  const { error } = await db.from('COMPONENTES').insert(Array.from({length:componentQuantity},()=>({...payload})));
+  const unsold={compra_id:payload.compra_id,nombre:payload.nombre,costo:payload.costo,precio_venta:null};
+  const { error } = await db.from('COMPONENTES').insert(Array.from({length:componentQuantity},(_,i)=>i<soldCount?{...payload}:{...unsold}));
 
   if(error){
     setBusy(btn, false);
     reportError('Error al agregar componente', error);
     return;
   }
-  nameInput.value = ''; costoInput.value = ''; saleInput.value = '';
-  toast('Componente "' + name + '" agregado');
+  nameInput.value = ''; costoInput.value = ''; saleInput.value = ''; if(qtyInput) qtyInput.value = '';
+  toast(componentQuantity === 1 ? 'Componente "' + name + '" agregado' : componentQuantity + ' unidades de "' + name + '" agregadas' + (soldCount ? ' (' + soldCount + ' vendida' + (soldCount === 1 ? '' : 's') + ')' : ''));
   await loadFromSupabase();
   const again = document.querySelector(`.ac-name[data-cid="${cid}"]`);
   if(again) again.focus();
