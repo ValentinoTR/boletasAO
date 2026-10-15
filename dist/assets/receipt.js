@@ -97,7 +97,7 @@ async function exportPDF(){
  let snapshot=structuredClone(data);const sendRequested=$('sendEmail').checked;exporting=true;
  document.querySelectorAll('.export-btn').forEach(b=>{b.disabled=true;b.textContent='Guardando boleta…';});$('retryEmailBtn').disabled=true;
  try{
-  if(!viewingIssued){const saved=await cloud.issue(cloudReceiptId,snapshot);data=normalizeData(saved.payload);cloudReceiptId=saved.id;viewingIssued=true;autoAdvanceId=saved.id;hydrate();$('sendEmail').checked=sendRequested;snapshot=structuredClone(data);saveDraft();cloud.saved();}
+  if(!viewingIssued){const saved=await cloud.issue(cloudReceiptId,snapshot);data=normalizeData(saved.payload);cloudReceiptId=saved.id;viewingIssued=true;autoAdvanceId=saved.id;showQuoteNotice('',[]);hydrate();$('sendEmail').checked=sendRequested;snapshot=structuredClone(data);saveDraft();cloud.saved();}
   const issuedId=cloudReceiptId;
   await cloud.ensureReceiptAvailable(issuedId);
   const bytes=await generatePDF(snapshot);
@@ -112,7 +112,9 @@ async function exportPDF(){
 }
 
 function hasContent(){return !!(data.customer.trim()||data.document.trim()||data.email.trim()||data.items.some(i=>i.description.trim()||i.price.trim()||i.serial.trim()||i.code.trim()));}
-function resetErrors(){showErrors=false;displayErrors([]);pageIndex=0;}
+function resetErrors(){showErrors=false;displayErrors([]);pageIndex=0;showQuoteNotice('',[]);}
+// Venta abierta desde una cotización: sus avisos siguen a la vista hasta emitir la boleta o empezar otra.
+function showQuoteNotice(label,list,pending=false){const box=$('quoteNotice');if(!list.length){box.hidden=true;box.replaceChildren();return;}box.innerHTML=`<div class="quote-notice-head"><strong>Desde la cotización ${escapeXML(label)}: ${pending?'completa':'revisa'} esto antes de emitir</strong><button type="button" class="btn btn-quiet" data-hide-notice aria-label="Ocultar los avisos de la cotización">Ocultar</button></div><ul>${list.map(t=>`<li>${escapeXML(t)}</li>`).join('')}</ul>`;box.hidden=false;}
 
 let emailService={available:false,configured:false,token:'',sender:''},pendingDelivery=null,exporting=false,autoAdvanceId=null,copyWarning='';
 const validEmail=value=>typeof value==='string'&&value.length<=254&&/^[^\s<>@,;:]+@[^\s<>@,;:]+\.[^\s<>@,;:]+$/.test(value.trim());
@@ -202,19 +204,49 @@ function lockIssuedFields(){
 }
 async function refreshCloudNumber(){if(viewingIssued)return false;const series=data.series.toUpperCase();if(!/^[A-Z0-9]{1,8}$/.test(series))return false;try{const n=await cloud.nextNumber(series);if(!viewingIssued&&data.series.toUpperCase()===series){data.number=String(n);$('number').value=data.number;update();saveDraft();return true;}}catch(e){toast('El número definitivo se asignará al exportar.');}return false;}
 window.loadCloudReceipt=(receipt,id)=>{if(!viewingIssued&&hasContent()&&!confirm('¿Abrir esta boleta y reemplazar el borrador actual?'))return;data=normalizeData(receipt);cloudReceiptId=id;viewingIssued=true;autoAdvanceId=null;resetErrors();hydrate();saveDraft();toast('Boleta guardada. Puedes descargar el PDF o enviar su correo.');};
+// Venta preparada desde una cotización: borrador nuevo con su cliente y sus productos ya vinculados al stock.
+// receiptId es el identificador con el que se emitirá (la cotización lo guarda para mostrarse como convertida).
+window.loadQuoteSale=(receipt,receiptId,label,notices=[])=>{
+ label=String(label??'').trim();
+ if(!receipt||typeof receipt!=='object'||typeof receiptId!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(receiptId))throw Error('La venta de la cotización no es válida.');
+ if(exporting)throw Error('Espera a que termine de emitirse la boleta actual e inténtalo otra vez.');
+ const incoming=normalizeData({version:VERSION,customer:receipt.customer,docType:receipt.docType,document:receipt.document,address:receipt.address,email:receipt.email,items:receipt.items});
+ if(!viewingIssued&&hasContent()&&!confirm('¿Reemplazar el borrador actual por la venta de la cotización '+label+'?'))return false;
+ // Si se estaba viendo una boleta emitida, mientras se consulta el número se muestra el siguiente.
+ const number=viewingIssued&&/^\d{1,10}$/.test(data.number)?String(Number(data.number)+1):data.number;
+ data={...emptyReceipt(number,data.series.toUpperCase(),data.observations),customer:incoming.customer,docType:incoming.docType,document:incoming.docType==='NONE'?'':incoming.document,address:incoming.address,email:incoming.email,items:incoming.items};
+ cloudReceiptId=receiptId;viewingIssued=false;autoAdvanceId=null;
+ resetErrors();hydrate();saveDraft();refreshCloudNumber();
+ // Lo que quedó pendiente al convertirla se ve desde el inicio: los avisos arriba de los productos y sus campos en rojo.
+ const errors=validate(),lines=new Set(errors.map(e=>(/-(\d+)$/.exec(e.id)||[])[1]).filter(Boolean)).size;
+ const list=(Array.isArray(notices)?notices:[]).filter(n=>n&&n.kind!=='service'&&typeof n.text==='string'&&n.text.trim()).slice(0,100).map(n=>cleanText(n.text).slice(0,500));
+ if(errors.length){showErrors=true;displayErrors(errors);}
+ showQuoteNotice(label,list,lines>0);
+ toast(lines?`Venta de la cotización ${label} abierta: completa ${lines===1?'1 producto':lines+' productos'} antes de emitir.`:errors.length?`Venta de la cotización ${label} abierta: revisa los datos señalados antes de emitir.`:list.length?`Venta de la cotización ${label} lista. Revisa los avisos y pulsa «Emitir y descargar».`:'Venta de la cotización '+label+' lista. Revisa los datos y pulsa «Emitir y descargar».');
+ return true;
+};
+$('quoteNotice').addEventListener('click',e=>{if(e.target.closest('[data-hide-notice]'))showQuoteNotice('',[]);});
+// Para el panel: el borrador abierto (sin emitir) de este dispositivo.
+window.draftReceiptId=()=>viewingIssued?null:cloudReceiptId;
 refreshCloudNumber();
 
 
-function syncInventoryPrice(item){const price=centsFromInput(item.price),qty=quantityFromInput(item.quantity);if(item.inventory?.length&&price!==null&&qty!==null)item.inventory=window.parent.AOSuiteCore.repriceParts(item.inventory,price*qty);}
+function syncInventoryPrice(item){const price=centsFromInput(item.price),qty=quantityFromInput(item.quantity);if(!item.inventory?.length||price===null||qty===null)return;
+ // Unidades incompletas (por ejemplo, de una cotización con menos stock): cada una conserva el precio por unidad, sin repartir el total entre menos.
+ if(item.inventoryMode!=='bundle'&&item.inventory.length!==qty){const unit=(price/100).toFixed(2);item.inventory=item.inventory.map(p=>({...p,price:unit}));return;}
+ item.inventory=window.parent.AOSuiteCore.repriceParts(item.inventory,price*qty);}
 $('items').addEventListener('click',async e=>{
  const button=e.target.closest('[data-inventory]');if(!button||viewingIssued)return;
  const index=Number(button.dataset.inventory);button.disabled=true;
  try{const selected=await cloud.inventorySelection(structuredClone(data.items[index]),index);if(!selected)return;
-   const item=data.items[index],previous=item.inventory||[];item.inventory=selected;const entered=centsFromInput(item.price);
-   const same=selected.every(p=>p.name===selected[0].name&&p.price===selected[0].price);
+   const item=data.items[index],previous=item.inventory||[],wasBundle=item.inventoryMode==='bundle',oldQty=quantityFromInput(item.quantity);item.inventory=selected;const entered=centsFromInput(item.price);
+   // Mismo producto al mismo precio (en céntimos: «1650» = «1650.00») → unidades; si no, una computadora.
+   const cents=selected.map(p=>centsFromInput(p.price)),same=selected.every((p,i)=>p.name===selected[0].name&&cents[i]===cents[0]);
    item.quantity=same?String(selected.length):'1';
    item.inventoryMode=same?'units':'bundle';
-   if(entered===null)item.price=same?selected[0].price:((selected.reduce((n,p)=>n+centsFromInput(p.price),0))/100).toFixed(2);
+   // El precio escrito se conserva mientras signifique lo mismo (precio por unidad o total de la computadora). Si varias unidades
+   // pasan a ser una computadora, o una computadora pasa a ser varias unidades, se usan los precios que mostró la selección.
+   if(entered===null||!same&&!wasBundle&&oldQty>1||same&&wasBundle&&selected.length>1)item.price=same?(cents[0]/100).toFixed(2):(cents.reduce((n,c)=>n+c,0)/100).toFixed(2);
    syncInventoryPrice(item);
    const autoDescription=parts=>parts.length?(parts.every(p=>p.name===parts[0].name)?parts[0].name:'Computadora completa: '+parts.map(p=>p.name).join(', ')).slice(0,350):'';
    if(!item.description.trim()||item.description===autoDescription(previous))item.description=autoDescription(selected);

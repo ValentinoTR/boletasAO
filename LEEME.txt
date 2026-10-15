@@ -36,7 +36,8 @@ Los correos enviados y los PDF descargados no se retiran.
 Incluye el panel en dist/, el código de generación, las integraciones de la
 tienda y del contabilizador, los cambios de base de datos y las pruebas.
 Los cambios SQL ya están aplicados al proyecto actual, salvo
-database/delete_clients.sql (ver ELIMINAR UN CLIENTE); no ejecutes de nuevo
+database/delete_clients.sql (ver ELIMINAR UN CLIENTE) y database/quotes.sql
+(ver COTIZACIONES); no ejecutes de nuevo
 el esquema inicial ni las actualizaciones de eliminación y stock sobre esa base.
 Consulta README.md para importar las compras anteriores y vincular el stock.
 
@@ -46,3 +47,13 @@ con clientes sin boletas emitidas (si tiene boletas, primero eliminalas en Bolet
 emitidas). PASO UNICO: antes de usarlo, abre Supabase -> SQL Editor, pega el
 contenido de database/delete_clients.sql y pulsa Run (ejecutarlo otra vez no
 hace daño).
+
+COTIZACIONES
+En Cotizaciones pulsa Nueva cotizacion: elige productos de tu stock (no se
+apartan ni se descuentan) o escribe lineas a mano, pon la validez y guarda.
+Descarga el PDF con tu logo o compartelo por WhatsApp. Cuando el cliente
+acepte, pulsa Convertir en boleta: se revisa tu stock (por ejemplo
+Ryzen 7 7800X3D 2 -> 1), se abre la boleta con el cliente y los productos ya
+conectados, y el stock baja al emitirla. Si algo ya se vendio, te avisa antes.
+PASO UNICO: abre Supabase -> SQL Editor, pega el contenido de
+database/quotes.sql y pulsa Run (ejecutarlo otra vez no hace daño).
