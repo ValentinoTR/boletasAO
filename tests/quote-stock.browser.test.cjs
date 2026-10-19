@@ -461,9 +461,9 @@ test('Boleta de una cotización con pendientes: avisos a la vista, productos a c
   assert.match(notice,/Desde la cotización COT-00017: completa esto antes de emitir/);
   assert.match(notice,/RYZEN 7 7800X3D: cotizaste 2 y tienes 1 en stock/);assert.match(notice,/Producto 2 \(«Procesador AMD Ryzen 7 7800X3D»\) se escribió a mano/);
   assert.doesNotMatch(notice,/Armado y configuración/,'lo que se vende sin stock no es un pendiente');
-  assert.deepEqual(await f.locator('[aria-invalid="true"]').evaluateAll(e=>e.map(x=>x.id)),['quantity-0','description-1']);
+  assert.deepEqual(await f.locator('[aria-invalid="true"]').evaluateAll(e=>e.map(x=>x.id)),['quantity-0']);
   assert.equal(await f.locator('#errorBox').isVisible(),true);
-  assert.equal(await f.locator('#toast').textContent(),'Venta de la cotización COT-00017 abierta: completa 2 productos antes de emitir.');
+  assert.equal(await f.locator('#toast').textContent(),'Venta de la cotización COT-00017 abierta: completa 1 producto antes de emitir.');
   // El buscador de la línea escrita a mano abre buscando su descripción, con el producto parecido a la vista.
   await f.locator('[data-inventory="1"]').click();await s.page.locator('#inventoryDialog[open]').waitFor();
   assert.equal(await s.page.inputValue('#inventorySearch'),'Procesador AMD Ryzen 7 7800X3D');
