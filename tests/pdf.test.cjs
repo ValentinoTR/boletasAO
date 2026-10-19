@@ -26,5 +26,12 @@ context.testReceipt=input;
  }
  context.testReceipt={...input,items:Array.from({length:60},(_,i)=>({...input.items[0],description:'COMPONENTE '+(i+1),price:'1.00'}))};
  assert.ok(vm.runInContext('buildScenes(testReceipt)',context).length>1,'solo una boleta enorme se reparte en varias hojas');
+ // Sin seleccionar productos la boleta se puede emitir: cada unidad se registra como «Venta sin stock».
+ vm.runInContext(fs.readFileSync(path.join(__dirname,'../dist/assets/suite-core.js'),'utf8'),context);win.parent.AOSuiteCore=win.AOSuiteCore;
+ context.manual={...input,items:[{description:'ARMADO DE PC',serial:'',code:'',unit:'NIU',quantity:'2',price:'100',inventory:[]}]};
+ vm.runInContext('data=manual',context);assert.equal(vm.runInContext('validate()',context).filter(e=>/Seleccionar/.test(e.msg)).length,0,'ya no exige seleccionar productos');
+ const filled=vm.runInContext('withManualInventory(structuredClone(manual))',context).items[0];
+ assert.equal(filled.inventory.length,2);assert.ok(filled.inventory.every(p=>p.source==='external'&&p.supplier==='Venta sin stock'&&p.name==='ARMADO DE PC'));
+ assert.equal(filled.inventory.reduce((t,p)=>t+Math.round(Number(p.price)*100),0),20000,'las unidades suman el importe de la línea');
  console.log('PDF con plantilla, fuentes, tildes, importe en letras y muchos productos en una sola hoja: correcto');
 })().catch(e=>{console.error(e);process.exit(1);});
