@@ -15,6 +15,16 @@ context.testReceipt=input;
  const pdf=await PDFLib.PDFDocument.load(bytes);assert.equal(pdf.getPageCount(),1);
  assert.ok(bytes.length>10000);fs.mkdirSync(path.join(__dirname,'../.qa'),{recursive:true});fs.writeFileSync(path.join(__dirname,'../.qa/receipt-test.pdf'),bytes);
  context.testReceipt={...input,items:Array.from({length:15},(_,i)=>({...input.items[0],description:'COMPONENTE '+(i+1)+' · descripción del producto',price:'100.00'}))};
- const multiple=await vm.runInContext('generatePDF(testReceipt)',context);assert.ok((await PDFLib.PDFDocument.load(multiple)).getPageCount()>1);
- console.log('PDF con plantilla, fuentes, tildes, importe en letras y varias páginas: correcto');
+ const single=await vm.runInContext('generatePDF(testReceipt)',context);assert.equal((await PDFLib.PDFDocument.load(single)).getPageCount(),1,'15 productos caben en una sola hoja');
+ // Una PC completa con descripciones largas, números de serie y observaciones sigue en una hoja y con letra legible.
+ for(const count of [7,10,13]){
+  context.testReceipt={...input,observations:'1 AÑO DE GARANTÍA.\nNo cubre daños por mal uso.',items:Array.from({length:count},(_,i)=>({...input.items[0],code:'PC-'+(i+1),description:'COMPONENTE '+(i+1)+' · Procesador AMD Ryzen 7 9700X 8 núcleos 16 hilos 5.5 GHz AM5 caja original',price:'350.00'}))};
+  const pages=vm.runInContext('buildScenes(testReceipt)',context);assert.equal(pages.length,1,count+' productos en una sola hoja');
+  const texts=pages[0].filter(o=>o.type==='text');for(const o of texts)assert.ok(o.size>=5.2,'letra legible: '+o.value+' '+o.size);
+  for(let i=1;i<=count;i++)assert.ok(texts.some(o=>o.value.startsWith('COMPONENTE '+i+' ')),'se ve el producto '+i);
+  const bottom=Math.max(...pages[0].filter(o=>o.type==='text'||o.fill!=='#ffffff'||o.stroke).map(o=>o.type==='rect'?o.y+o.h:o.y));assert.ok(bottom<=825,'nada se sale de la hoja: '+bottom);
+ }
+ context.testReceipt={...input,items:Array.from({length:60},(_,i)=>({...input.items[0],description:'COMPONENTE '+(i+1),price:'1.00'}))};
+ assert.ok(vm.runInContext('buildScenes(testReceipt)',context).length>1,'solo una boleta enorme se reparte en varias hojas');
+ console.log('PDF con plantilla, fuentes, tildes, importe en letras y muchos productos en una sola hoja: correcto');
 })().catch(e=>{console.error(e);process.exit(1);});
