@@ -409,7 +409,7 @@ test('Editor: AOQuoteHost espera frameReady, guarda con upsert y vuelve a la lis
   assert.equal(copy.row.status,'converted');assert.equal(copy.row.receiptLabel,'B001-123');assert.deepEqual(copy.opts,{duplicate:true});
   // Guardar una nueva: número asignado por la base, sin enviar number ni receipt_id.
   const id='20000000-0000-4000-8000-000000000001';
-  const saved=await editor().evaluate(id=>window.parent.AOQuoteHost.save({version:1,date:'2026-10-14',validDays:7,validUntil:'2026-10-21',customer:'  Nuevo   Cliente ',docType:'DNI',document:'',phone:'+51 936 177 329',email:'',address:'',notes:'',items:[{description:'Fuente 750W',code:'',unit:'NIU',quantity:'2',price:'350.5',parts:[],mode:'units'}]},id),id);
+  const saved=await editor().evaluate(({id,date,validUntil})=>window.parent.AOQuoteHost.save({version:1,date,validDays:7,validUntil,customer:'  Nuevo   Cliente ',docType:'DNI',document:'',phone:'+51 936 177 329',email:'',address:'',notes:'',items:[{description:'Fuente 750W',code:'',unit:'NIU',quantity:'2',price:'350.5',parts:[],mode:'units'}]},id),{id,date:T,validUntil:D(7)});
   assert.equal(saved.label,'COT-00019');assert.equal(saved.number,19);assert.equal(saved.status,'pending');assert.equal(saved.id,id);
   const upsert=(await s.calls(c=>c.op==='upsert'))[0].payload;
   assert.deepEqual(Object.keys(upsert).sort(),['customer','document','id','phone','quote','quote_date','total_cents','valid_until']);

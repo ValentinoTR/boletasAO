@@ -50,7 +50,11 @@
   async function showView(name) {
     if (name === "team" && member?.role !== "owner") return;
     // El editor de una cotización sigue marcando «Cotizaciones» en el menú.
-    const nav = name === "quoteEditor" ? "quotes" : name; document.querySelectorAll("[data-view]").forEach(b => b.classList.toggle("active", b.dataset.view === nav));
+    const nav = name === "quoteEditor" ? "quotes" : name; document.querySelectorAll("[data-view]").forEach(b => {
+      const active=b.dataset.view===nav;b.classList.toggle("active",active);
+      if(active)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current");
+      if(active&&b.closest("nav"))b.scrollIntoView({block:"nearest",inline:"nearest",behavior:"instant"});
+    });
     const accounting = ["dashboard","compras","inventario","ventas"].includes(name); for (const view of ["editor", "history", "team", "account", "catalog", "clients", "connection", "accounting", "quotes", "quoteEditor"]) $(view + "View").hidden = view === "accounting" ? !accounting : view !== name; window.AOSuite.navigate(name);
     try { if (name === "quotes") await window.AOQuotes?.show(); if (name === "history") await loadHistory(); if (name === "team") { await loadTeam(); $("nextNumber").value = String(await rpc("ao_next_number", { series_name: $("numberSeries").value })); } }
     catch (error) { globalMessage(errorText(error)); }
