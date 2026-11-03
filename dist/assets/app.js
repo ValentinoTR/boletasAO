@@ -29,7 +29,7 @@
       if (lookupError || !nextMember?.active) { await client.auth.signOut(); showLogin(); message("entryMessage", "Tu cuenta no tiene acceso activo a AO Nexus. Contacta al administrador."); return; }
       if (generation !== authGeneration) return;
       user = nextUser; member = nextMember;
-      window.AOCloud = { userId: user.id, api, inventorySelection: (item,index) => window.AOSuite.pickInventory(item,index), issue: (id, receipt) => rpc("ao_suite_issue_receipt", { request_id: id, receipt }), ensureReceiptAvailable: async id => {
+      window.AOCloud = { userId: user.id, api, inventorySelection: (item,index) => window.AOSuite.pickInventory(item,index), linkTypedStock: receipt => window.AOSuite.linkTypedSale(receipt), issue: (id, receipt) => rpc("ao_suite_issue_receipt", { request_id: id, receipt }), ensureReceiptAvailable: async id => {
         const { data, error } = await client.from("ao_receipts").select("id").eq("id", id).is("deleted_at", null).maybeSingle();
         if (error) throw error;
         if (!data) throw Error("Esta boleta fue eliminada. Actualiza el historial y crea una nueva con los datos correctos.");
