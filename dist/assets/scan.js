@@ -145,7 +145,8 @@
     const matches = api.products().filter(p => words.every(w => normal(p.name + " " + p.brand).includes(w))).sort((a, b) => a.name.localeCompare(b.name, "es")).slice(0, 8);
     const listHTML = matches.length ? matches.map(p => `<li><span>${esc(p.name)}<small>${esc(p.brand || "Sin marca")}${p.barcodes.length ? ", ya tiene otro código" : ""}</small></span><button type="button" class="secondary" data-scan-link="${esc(p.id)}">Es este</button></li>`).join("") : "<li class=\"receive-empty\">Ningún producto coincide. Puedes crearlo como nuevo.</li>";
     if (!$("scanPick")) {
-      result(`<p><strong>El código ${esc(showCode(pendingCode))} todavía no está en tu web.</strong> Dinos qué producto es: la próxima vez se reconocerá solo.</p><label for="scanPick">Buscar el producto</label><input id="scanPick" type="search" placeholder="Por ejemplo: B850, Ryzen 7, Kingston 32GB" autocomplete="off"><ul id="scanMatches" class="scan-matches"></ul><div class="suite-actions"><button type="button" class="secondary" data-scan-new>Es un producto nuevo</button><button type="button" class="quiet" data-scan-cancel>Cancelar</button></div>`, "pending");
+      const amazon = /^X00[0-9A-Z]{7}$/.test(pendingCode);
+      result(`<p><strong>${amazon ? `El código ${esc(pendingCode)} es la etiqueta de Amazon de esta caja.` : `El código ${esc(showCode(pendingCode))} todavía no está en tu web.`}</strong> ${amazon ? "No dice qué producto es: elígelo una vez y desde entonces se reconocerá solo." : "Dinos qué producto es: la próxima vez se reconocerá solo."}</p><label for="scanPick">Buscar el producto</label><input id="scanPick" type="search" placeholder="Por ejemplo: B850, Ryzen 7, Kingston 32GB" autocomplete="off"><ul id="scanMatches" class="scan-matches"></ul><div class="suite-actions"><button type="button" class="secondary" data-scan-new>Es un producto nuevo</button><button type="button" class="quiet" data-scan-cancel>Cancelar</button></div>`, "pending");
       $("scanPick").addEventListener("input", () => showUnknown($("scanPick").value));
       $("scanPick").focus();
     }
@@ -169,6 +170,34 @@
       script.onerror = () => { zxingLoading = null; reject(Error("lector")); };
       document.head.append(script);
     });
+  }
+  // Sin «try harder», ZXing solo revisa una franja del centro: un código arriba o abajo del cuadro no se encontraba.
+  const hardHints = () => new Map([[window.ZXing.DecodeHintType.TRY_HARDER, true]]);
+  // Una foto tomada con la cámara del celular (enfoca mejor de cerca): primero el lector del navegador y luego ZXing,
+  // derecha y girada (por si el código está vertical), a un tamaño que no la haga lenta.
+  async function readPhoto(file) {
+    if (!file) return;
+    stopCamera(); result("<p>Leyendo la foto…</p>");
+    let image;
+    try { image = await createImageBitmap(file); }
+    catch { result("<p>No se pudo abrir esa imagen. Usa una foto JPG o PNG.</p>", "problem"); return; }
+    try {
+      const formats = await nativeFormats();
+      if (formats.length) { try { const code = (await new window.BarcodeDetector({ formats }).detect(image)).find(c => core.barcodeKey(c.rawValue)); if (code) { handleCode(code.rawValue); return; } } catch {} }
+      await loadZXing();
+      const reader = new window.ZXing.MultiFormatReader(), hints = hardHints();
+      for (const size of [1600, 2600]) for (const turn of [0, 90]) {
+        const scale = Math.min(1, size / Math.max(image.width, image.height)), w = Math.round(image.width * scale), h = Math.round(image.height * scale);
+        const canvas = document.createElement("canvas"), g = canvas.getContext("2d");
+        canvas.width = turn ? h : w; canvas.height = turn ? w : h;
+        if (turn) { g.translate(h, 0); g.rotate(Math.PI / 2); }
+        g.drawImage(image, 0, 0, w, h);
+        try { const found = reader.decode(new window.ZXing.BinaryBitmap(new window.ZXing.HybridBinarizer(new window.ZXing.HTMLCanvasElementLuminanceSource(canvas))), hints); handleCode(found.getText()); return; } catch {}
+        if (scale === 1) break;
+      }
+      result("<p>No se encontró un código de barras en la foto. Tómala más cerca, con el código entero, derecho y bien iluminado.</p>", "problem");
+    } catch { result("<p>No se pudo cargar el lector de códigos. Revisa tu conexión, o escribe el código.</p>", "problem"); }
+    finally { image.close?.(); }
   }
   async function nativeFormats() {
     if (!("BarcodeDetector" in window)) return [];
@@ -198,11 +227,31 @@
         };
         tick();
       } else {
+        // ZXing con su propio bucle: cada cuadro se lee en una imagen nueva (el bucle de la librería reutiliza la suya y,
+        // con «try harder», un cuadro fallido la deja girada y ya no lee nada). Una pasada rápida por el centro y, cada
+        // tercer cuadro, una completa: así se encuentra el código aunque no esté al medio sin volverla lenta.
         await loadZXing();
         if (run !== cameraRun) return;
-        const reader = new window.ZXing.BrowserMultiFormatReader();
-        camera = { stop: () => { try { reader.reset(); } catch {} video.srcObject = null; } };
-        await reader.decodeFromConstraints(constraints, video, value => { if (value) found(value.getText()); });
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        if (run !== cameraRun) { stream.getTracks().forEach(t => t.stop()); return; }
+        const Z = window.ZXing, quick = new Z.MultiFormatReader(), thorough = new Z.MultiFormatReader();
+        quick.setHints(null); thorough.setHints(hardHints());
+        const canvas = document.createElement("canvas"), g = canvas.getContext("2d", { willReadFrequently: true });
+        let timer = 0, frame = 0;
+        camera = { stop: () => { clearTimeout(timer); stream.getTracks().forEach(t => t.stop()); video.srcObject = null; } };
+        video.srcObject = stream; video.play().catch(() => {});
+        const read = () => {
+          if (run !== cameraRun) return;
+          if (video.readyState >= 2 && video.videoWidth) {
+            const scale = Math.min(1, 1280 / video.videoWidth);
+            canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale);
+            g.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const reader = ++frame % 3 === 0 ? thorough : quick;
+            try { const value = reader.decodeWithState(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(canvas)))); if (core.barcodeKey(value.getText())) { found(value.getText()); return; } } catch {}
+          }
+          timer = setTimeout(read, 120);
+        };
+        read();
       }
       if (run === cameraRun) $("scanStatus").textContent = "Apunta al código de barras o QR de la caja. Se lee solo.";
     } catch (error) {
@@ -218,6 +267,8 @@
   // ---------- Eventos ----------
   $("scanStart").addEventListener("click", () => { result(""); pendingCode = ""; $("scanVideo").hidden = false; $("scanStop").textContent = "Detener cámara"; startCamera(); });
   $("scanStop").addEventListener("click", () => stopCamera());
+  $("scanPhoto").addEventListener("click", () => $("scanPhotoFile").click());
+  $("scanPhotoFile").addEventListener("change", e => { const file = e.target.files[0]; e.target.value = ""; readPhoto(file); });
   $("scanCodeForm").addEventListener("submit", e => { e.preventDefault(); stopCamera(); handleCode($("scanCode").value); });
   $("scanSearch").addEventListener("input", render);
   document.querySelectorAll("[data-scan-filter]").forEach(b => b.addEventListener("click", () => { filter = b.dataset.scanFilter; render(); }));
