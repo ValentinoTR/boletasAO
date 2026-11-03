@@ -57,7 +57,7 @@
     $("catalogGrid").replaceChildren();$("clientList").replaceChildren();$("oldPassword").value="";
   }
   function navigate(name) {
-    const titles={dashboard:"Resumen del negocio",compras:"Compras y costos",inventario:"Inventario disponible",ventas:"Ventas y ganancias",catalog:"Productos de mi web",stock:"Escanear stock",clients:"Clientes",editor:"Nueva boleta",history:"Boletas emitidas",team:"Mi equipo",account:"Mi cuenta",connection:"Conexión inicial",quotes:"Cotizaciones",quoteEditor:"Cotización"};
+    const titles={dashboard:"Resumen del negocio",compras:"Compras y costos",inventario:"Inventario disponible",ventas:"Ventas y ganancias",catalog:"Productos de mi web",stock:"Ingresar mercadería",clients:"Clientes",editor:"Nueva boleta",history:"Boletas emitidas",team:"Mi equipo",account:"Mi cuenta",connection:"Conexión inicial",quotes:"Cotizaciones",quoteEditor:"Cotización"};
     $("suiteHeading").textContent=titles[name]||"AO Nexus Central";
     if(name!=="stock")window.AOScan?.leave();else window.AOScan?.enter();
     if(["dashboard","compras","inventario","ventas"].includes(name)){desiredView=name==="ventas"?"historial":name;$("accountingFrame").contentWindow?.navigateFromSuite?.(desiredView);}
@@ -99,8 +99,9 @@
   });
   function openProduct(product,prefill={}) {
     editingProduct=product;$("productForm").reset();$("productMessage").textContent="";
-    productRequest=crypto.randomUUID();$("productIncoming").hidden=!!product;$("productQuantity").value="1";$("productPurchaseDate").value=today();syncProductQuantity();
-    $("productTitle").textContent=product?"Editar producto de mi web":"Agregar producto a mi web";
+    productRequest=crypto.randomUUID();$("productIncoming").hidden=!!product||!!prefill.receiving;$("productQuantity").value=prefill.receiving?"0":"1";$("productPurchaseDate").value=today();syncProductQuantity();
+    $("productTitle").textContent=product?"Editar producto de mi web":prefill.receiving?"Producto nuevo para tu web":"Agregar producto a mi web";
+    productAfterSave=product?null:prefill.after||null;
     $("productId").value=product?.id||"";
     for(const [id,key]of [["productName","name"],["productBrand","brand"],["productSub","sub"]])$(id).value=product?.data[key]||"";
     $("productPrice").value=product?.web_price??"";$("productOldPrice").value=product?.data.oldPrice??"";
@@ -129,10 +130,12 @@
       for(const code of barcodes){const owner=barcodeOwner(code);if(owner&&String(owner.id)!==String(editingProduct?.id))throw Error(`El código ${code} ya es de «${owner.data.name}». Quítalo de ese producto antes de usarlo aquí.`);}
       if(barcodes.length)data.barcodes=barcodes;
       if($("productOldPrice").value!="")data.oldPrice=core.cents($("productOldPrice").value)/100;
-      const payload={data,web_price:core.cents($("productPrice").value)/100,published:$("productPublished").checked,updated_at:new Date().toISOString()};
+      let created=null;const payload={data,web_price:core.cents($("productPrice").value)/100,published:$("productPublished").checked,updated_at:new Date().toISOString()};
       if(editingProduct){const {error}=await db.from("ao_products").update(payload).eq("id",editingProduct.id);if(error)throw error;}
-      else {const count=core.quantity($("productQuantity").value);if(count>1000)throw Error('Registra hasta 1000 unidades por compra.');await rpc('ao_suite_create_product',{request_key:productRequest,product_data:payload,quantity:count,cost_per_unit:count?core.optionalCents($("productUnitCost").value)/100:null,supplier:$("productSupplier").value.trim()||null,purchased_on:$("productPurchaseDate").value||today()});}
-      await refreshAfterMutation();$("productDialog").close();toast(editingProduct?"Producto actualizado.":Number($("productQuantity").value)?"Producto y unidades guardados en stock.":"Producto guardado en Para reponer.");$("accountingFrame").contentWindow?.refreshFromSuite?.();
+      else {const count=core.quantity($("productQuantity").value);if(count>1000)throw Error('Registra hasta 1000 unidades por compra.');created=await rpc('ao_suite_create_product',{request_key:productRequest,product_data:payload,quantity:count,cost_per_unit:count?core.optionalCents($("productUnitCost").value)/100:null,supplier:$("productSupplier").value.trim()||null,purchased_on:$("productPurchaseDate").value||today()});}
+      await refreshAfterMutation();const after=productAfterSave;productAfterSave=null;$("productDialog").close();$("accountingFrame").contentWindow?.refreshFromSuite?.();
+      if(after&&created?.product_id!=null){after(created.product_id);return;}
+      toast(editingProduct?"Producto actualizado.":Number($("productQuantity").value)?"Producto y unidades guardados en stock.":"Producto guardado en Para reponer.");
     } catch(error){report("productMessage",error);} finally{button.disabled=false;}
   });
   function today(){const parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/Lima',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());const get=type=>parts.find(p=>p.type===type).value;return get('year')+'-'+get('month')+'-'+get('day');}
@@ -147,7 +150,8 @@
     $("stockQuantity").value=restocking?'1':String(stockExpected);$("stockDate").value=today();$("stockMessage").textContent='';updateStockFields();$("stockDialog").showModal();
   }
   // ---------- Escanear stock: el código de la caja identifica el producto y abre «Reponer» ----------
-  let stockAfterSave=null;
+  let stockAfterSave=null,productAfterSave=null;
+  $("productDialog").addEventListener("close",()=>setTimeout(()=>{if(!$("productDialog").open)productAfterSave=null;},0));
   $("stockDialog").addEventListener("close",()=>{if(!$("stockDialog").open)setTimeout(()=>{if(!$("stockDialog").open)stockAfterSave=null;},0);});
   const productBarcodes=p=>Array.isArray(p?.data?.barcodes)?p.data.barcodes.map(core.barcodeKey).filter(Boolean):[];
   function barcodeOwner(code){const key=core.barcodeKey(code);return key?products.find(p=>productBarcodes(p).includes(key))||null:null;}
@@ -165,9 +169,28 @@
     find:code=>{const p=barcodeOwner(code);return p?{id:p.id,name:p.data.name}:null;},
     link:linkBarcode,
     restock:(productId,after)=>{const p=products.find(x=>String(x.id)===String(productId));if(!p)throw Error("El producto ya no existe. Actualiza la lista.");openStock(p,true);stockAfterSave=$("stockDialog").open?after||null:null;return $("stockDialog").open;},
-    newProduct:code=>openProduct(null,{barcode:core.barcodeKey(code)}),
+    newProduct:(code,after)=>openProduct(null,{barcode:core.barcodeKey(code),receiving:true,after}),
+    // Proveedores ya usados en Compras (los más recientes primero) y el último tipo de cambio de una compra en dólares.
+    suppliers:()=>[...new Set([...purchases].sort((a,b)=>Number(b.id)-Number(a.id)).map(c=>String(c.proveedor||"").trim()).filter(name=>name&&name!==NO_STOCK_SUPPLIER&&!/^Stock inicial/.test(name)))].slice(0,40),
+    lastRate:()=>{const c=[...purchases].sort((a,b)=>Number(b.id)-Number(a.id)).find(c=>c.moneda==="USD"&&Number(c.tipo_cambio)>0);return c?Number(c.tipo_cambio):null;},
+    receive:receivePurchase,
     refresh:()=>refresh()
   };
+  // Registra la compra de la mercadería que llegó, vinculada al producto. Antes activa la cantidad del catálogo anterior
+  // (como «Reponer»), porque una compra vinculada hace que el producto cuente solo sus unidades reales.
+  async function receivePurchase({productId,quantity,cost,currency,rate,supplier,date,category,request}){
+    if(!db||!catalogReady)throw Error("Actualiza el stock de tu web antes de ingresar mercadería.");
+    const client=db,find=()=>products.find(p=>String(p.id)===String(productId));
+    let p=find();if(!p)throw Error("El producto ya no existe. Actualiza la lista.");
+    if(!Number.isInteger(quantity)||quantity<1||quantity>1000)throw Error("Indica entre 1 y 1000 unidades.");
+    if(currency==="USD"&&!(rate>0))throw Error("Indica el tipo de cambio de la compra en dólares.");
+    const info=productStock(p,stockIndex());
+    if((info.loose.length||info.extra>0)&&await registerStock(p,info)){await refreshAfterMutation();if(client!==db)throw Error("Tu sesión cambió. Vuelve a intentarlo.");p=find()||p;}
+    const result=await rpc("ao_suite_create_purchase",{request_key:request,product_key:Number(p.id),quantity,
+      purchase_data:{nombre:p.data.name,costo:cost,moneda:currency==="USD"?"USD":"PEN",tipo_cambio:currency==="USD"?rate:0,impuesto:0,proveedor:supplier||null,fecha_compra:date||today(),categoria:category||null}});
+    await refreshAfterMutation();$("accountingFrame").contentWindow?.refreshFromSuite?.();
+    return {purchaseId:result?.purchase_id??null,stock:stock(find()||p)};
+  }
   function openStockGroup(group,restocking=false){openStock(products.find(p=>String(p.id)===String(group.productId))||{id:null,data:{name:group.name},managed:true},restocking);}
   function updateStockFields(){const count=Number($("stockQuantity").value),delta=stockRestocking?count:count-stockExpected;$("stockPurchaseFields").hidden=delta<=0;$("stockQuantity").min=stockRestocking?'1':'0';$("stockHint").textContent=delta>0?`Se sumarán ${delta} unidad(es) al stock. El costo es opcional: si lo indicas se usará para calcular la ganancia; si no, quedará en S/ 0.00 y podrás completarlo después en Compras.`:delta<0?`Se retirarán ${-delta} unidad(es) del stock disponible. Se conservarán las compras y las ventas ya realizadas.`:'La cantidad disponible permanecerá igual.';}
   $("stockQuantity").addEventListener('input',updateStockFields);
