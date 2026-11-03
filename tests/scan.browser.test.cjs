@@ -230,3 +230,38 @@ test('El menú abre «Ingresar mercadería» y al ir a otra sección la cámara 
   assert.ok(await s.page.evaluate(()=>window.__stream.getTracks().every(t=>t.readyState==='ended')),'la cámara queda apagada al salir');
   assert.deepEqual(s.errors,[]);
 });
+
+// Foto real de una caja (Ryzen 5 9600X con la etiqueta de Amazon X004LZKL9B, al revés y con texto alrededor).
+const PHOTO=path.join(__dirname,'fixtures','ryzen-9600x-amazon.jpg');
+test('«Usa una foto» lee la etiqueta de Amazon de una foto real y, la primera vez, explica que hay que elegir el producto',{skip},async()=>{
+  const s=await open({products:[product(1,'RYZEN 5 9600X',{brand:'AMD'}),product(2,'RYZEN 7 7800X3D',{brand:'AMD'})]});
+  assert.equal(await s.page.evaluate(()=>'BarcodeDetector' in window),false,'usa el lector incluido, como Safari en el iPhone');
+  await s.page.setInputFiles('#scanPhotoFile',PHOTO);
+  await s.page.locator('#scanPick').waitFor({timeout:20000});
+  assert.match(await s.page.textContent('#scanResult'),/El código X004LZKL9B es la etiqueta de Amazon de esta caja\. No dice qué producto es: elígelo una vez/);
+  await s.page.fill('#scanPick','9600');await s.page.click('[data-scan-link="1"]');await s.ticket();
+  assert.equal(await s.page.textContent('#receiveName'),'RYZEN 5 9600X');
+  assert.equal(await s.page.textContent('#receiveCode span'),'X004LZKL9B');
+  await register(s.page);
+  // La siguiente caja igual se reconoce sola.
+  await s.page.setInputFiles('#scanPhotoFile',PHOTO);await s.ticket();
+  assert.equal(await s.page.textContent('#receiveName'),'RYZEN 5 9600X');
+  assert.deepEqual(s.errors,[]);
+});
+test('Cámara: la misma caja se lee en vivo aunque el código no esté al centro del cuadro',{skip},async()=>{
+  const W=640,H=480,{execFileSync}=require('node:child_process');
+  // La foto como video de la cámara (YUV 4:2:0), sin dependencias: se convierte con el propio Chromium.
+  const helper=await browser.newPage();await helper.goto(base+'/index.html');
+  const yuv=await helper.evaluate(async({src,W,H})=>{const img=new Image();img.src=src;await img.decode();const c=document.createElement('canvas');c.width=W;c.height=H;const g=c.getContext('2d');g.drawImage(img,0,0,W,H);const d=g.getImageData(0,0,W,H).data;
+    const Y=new Array(W*H),U=new Array(W*H/4).fill(128);for(let i=0;i<W*H;i++)Y[i]=Math.round(.299*d[i*4]+.587*d[i*4+1]+.114*d[i*4+2]);return Y;},{src:'data:image/jpeg;base64,'+fs.readFileSync(PHOTO).toString('base64'),W,H});
+  await helper.close();
+  const frame=Buffer.concat([Buffer.from('FRAME\n'),Buffer.from(yuv),Buffer.alloc(W*H/2,128)]);
+  const file=path.join(fs.mkdtempSync(path.join(os.tmpdir(),'scan-')),'box.y4m');fs.writeFileSync(file,Buffer.concat([Buffer.from(`YUV4MPEG2 W${W} H${H} F5:1 Ip A1:1 C420jpeg\n`),frame,frame]));
+  const chromium=await playwright.chromium.launch({...(executablePath?{executablePath}:{}),args:['--use-fake-ui-for-media-stream','--use-fake-device-for-media-stream','--use-file-for-fake-video-capture='+file]});
+  try{
+    const s=await open({chromium,products:[product(1,'RYZEN 5 9600X',{barcodes:['X004LZKL9B']})]});
+    await s.page.click('#scanStart');
+    await s.page.locator('#receiveForm:not([hidden])').waitFor({timeout:20000});
+    assert.equal(await s.page.textContent('#receiveName'),'RYZEN 5 9600X');
+  }finally{await chromium.close();}
+});
