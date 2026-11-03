@@ -43,7 +43,7 @@
       $("userName").textContent = member.display_name; $("accountEmail").textContent = user.email; $("teamNav").hidden = member.role !== "owner";
       $("loginView").hidden = true; $("loginThemeToggle").hidden = true; $("appView").hidden = false; $("loginPassword").value = "";
       if (!$("receiptFrame").getAttribute("src")) $("receiptFrame").src = "boletas.html";
-      window.AOQuotes?.initialize(client,member); await window.AOSuite.initialize(client,member); const initialView=new URLSearchParams(location.search).get("vista"); await showView(["catalog","compras","inventario","editor","clients","ventas","quotes"].includes(initialView)?initialView:"dashboard");
+      window.AOQuotes?.initialize(client,member); await window.AOSuite.initialize(client,member); const initialView=new URLSearchParams(location.search).get("vista"); await showView(["catalog","stock","compras","inventario","editor","clients","ventas","quotes"].includes(initialView)?initialView:"dashboard");
     } catch (error) { if (generation === authGeneration) message("entryMessage", errorText(error)); }
     finally { initializing = false; }
   }
@@ -55,7 +55,7 @@
       if(active)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current");
       if(active&&b.closest("nav"))b.scrollIntoView({block:"nearest",inline:"nearest",behavior:"instant"});
     });
-    const accounting = ["dashboard","compras","inventario","ventas"].includes(name); for (const view of ["editor", "history", "team", "account", "catalog", "clients", "connection", "accounting", "quotes", "quoteEditor"]) $(view + "View").hidden = view === "accounting" ? !accounting : view !== name; window.AOSuite.navigate(name);
+    const accounting = ["dashboard","compras","inventario","ventas"].includes(name); for (const view of ["editor", "history", "team", "account", "catalog", "stock", "clients", "connection", "accounting", "quotes", "quoteEditor"]) $(view + "View").hidden = view === "accounting" ? !accounting : view !== name; window.AOSuite.navigate(name);
     try { if (name === "quotes") await window.AOQuotes?.show(); if (name === "history") await loadHistory(); if (name === "team") { await loadTeam(); $("nextNumber").value = String(await rpc("ao_next_number", { series_name: $("numberSeries").value })); } }
     catch (error) { globalMessage(errorText(error)); }
   }

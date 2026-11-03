@@ -49,7 +49,12 @@
     }
     return snapshot.productos;
   }
-  const api={catalogRows,cents,optionalCents,legacyProducts,activatableProducts,legacyStockArgs,realCost,allocate,validateParts,repriceParts,available,quantity,productStock,filterStock};
+  // Código de barras o QR de un producto, para compararlo: sin espacios y en mayúsculas. Un UPC-A (12 dígitos)
+  // es el mismo producto que su EAN-13 con un 0 delante. Vacío si no es un código válido.
+  const barcodeKey=code=>{const value=String(code??'').replace(/\s+/g,'').toUpperCase();if(!value||value.length>120||/[\u0000-\u001f]/.test(value))return '';return /^\d{12}$/.test(value)?'0'+value:value;};
+  // Los códigos escritos en un producto (uno por línea o separados por comas), sin repetir.
+  const barcodeList=text=>[...new Set(String(text??'').split(/[\n,;]+/).map(barcodeKey).filter(Boolean))];
+  const api={catalogRows,cents,optionalCents,legacyProducts,activatableProducts,legacyStockArgs,realCost,allocate,validateParts,repriceParts,available,quantity,productStock,filterStock,barcodeKey,barcodeList};
   if(typeof window!=='undefined')window.AOSuiteCore=api;
   if(typeof module!=='undefined')module.exports=api;
 })();
