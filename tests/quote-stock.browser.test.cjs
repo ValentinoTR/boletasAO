@@ -538,3 +538,27 @@ test('Buscador de la boleta: con la descripción escrita busca lo parecido; si n
   assert.deepEqual(await s.rows(),['SSD Kingston NV2 1TB | 1 en stock']);
   assert.deepEqual(s.errors,[]);
 });
+
+// Boleta: lo escrito a mano que es de tu stock se vende de tu stock (con su costo de Compras), sin seleccionarlo.
+const typed=(description,price,quantity='1')=>({items:[{description,serial:'',code:'',unit:'NIU',quantity,price,inventory:[]}]});
+test('Escrito a mano con el nombre de tu stock: toma primero la unidad de Compras con costo, no la del catálogo anterior',{skip},async()=>{
+  const s=await open({products:[product(1,'B850-E ASUS TUF WIFI',2,false,700)],purchases:[purchase(7,'B850-E ASUS TUF WIFI',{costo:525})],units:[unit(71,7,'B850-E ASUS TUF WIFI')]});
+  const r=await s.page.evaluate(r=>window.AOSuite.linkTypedSale(r),typed('b850-e asus tuf wifi','650'));
+  assert.deepEqual(r.linked,[{line:1,name:'B850-E ASUS TUF WIFI',fromStock:1,quantity:1}]);
+  assert.deepEqual(r.receipt.items[0].inventory.map(p=>[p.source,p.id,p.price]),[['stock',71,'650.00']],'la unidad de Compras (costo 525), no la del catálogo anterior');
+  assert.equal(r.receipt.items[0].description,'b850-e asus tuf wifi','la descripción de la boleta no cambia');
+});
+test('Escrito con otras palabras y el mismo modelo se vincula; más unidades que el stock: las que faltan sin stock',{skip},async()=>{
+  const s=await open({products:[product(1,'RYZEN 7 7800X3D',0,true,1650)],purchases:[purchase(7,'x')],units:[unit(71,7,'RYZEN 7 7800X3D',1)]});
+  const r=await s.page.evaluate(r=>window.AOSuite.linkTypedSale(r),typed('Procesador AMD Ryzen 7 7800X3D','1800','2'));
+  assert.deepEqual(r.receipt.items[0].inventory.map(p=>[p.source,p.supplier||'',p.price]),[['stock','','1800.00'],['external','Venta sin stock','1800.00']]);
+  assert.deepEqual(r.linked,[{line:1,name:'RYZEN 7 7800X3D',fromStock:1,quantity:2}]);
+});
+test('Escrito sin modelo que se parece a tu stock: pide elegir; lo que no se parece a nada queda como de otra tienda',{skip},async()=>{
+  const s=await open({products:[product(1,'RYZEN 7 7700X',1,false),product(2,'RYZEN 7 7800X3D',1,false)]});
+  const error=await s.page.evaluate(r=>window.AOSuite.linkTypedSale(r).then(()=>'',e=>e.message),typed('Ryzen 7','900'));
+  assert.match(error,/Producto 1 \(«Ryzen 7»\) se parece a «RYZEN 7 7700X», «RYZEN 7 7800X3D» de tu stock: pulsa «Seleccionar productos para esta venta»/);
+  const r=await s.page.evaluate(r=>window.AOSuite.linkTypedSale(r),typed('Armado y configuración','80'));
+  assert.deepEqual([r.linked,r.receipt.items[0].inventory],[[],[]],'no cambia: se venderá sin stock');
+  assert.deepEqual(await s.rpc(),[],'no se escribió nada en la base');
+});

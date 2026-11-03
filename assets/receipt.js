@@ -102,6 +102,8 @@ function renderPage(){if(!scenes.length)return;pageIndex=Math.max(0,Math.min(pag
 function refreshPreview(){scenes=buildScenes(data);renderPage();}
 function rgbHex(hex){return PDFLib.rgb(parseInt(hex.slice(1,3),16)/255,parseInt(hex.slice(3,5),16)/255,parseInt(hex.slice(5,7),16)/255);}
 async function generatePDF(d){const doc=await PDFLib.PDFDocument.create();const docFonts=await embedReceiptFonts(doc);const bg=await doc.embedPng(await receiptBytes(TEMPLATE));const layouts=buildScenes(d);doc.setTitle(`Boleta ${d.series.toUpperCase()}-${d.number} · AO Nexus`);doc.setAuthor('AO Nexus');doc.setCreator('AO Nexus · Gestor de boletas');doc.setSubject('Boleta de venta');for(const ops of layouts){const p=doc.addPage([PAGE_W,PAGE_H]);p.drawImage(bg,{x:3.337059,y:PAGE_H-4.25354-838.065735,width:593.47363,height:838.065735});for(const o of ops){if(o.type==='rect')p.drawRectangle({x:o.x,y:PAGE_H-o.y-o.h,width:o.w,height:o.h,color:rgbHex(o.fill),...(o.stroke?{borderColor:rgbHex(o.stroke),borderWidth:o.lineWidth}:{})});else p.drawText(o.value,{x:o.x,y:PAGE_H-o.y,size:o.size,font:docFonts[o.font],color:rgbHex(o.color)});}}return doc.save();}
+// «Boleta B001-113 emitida y guardada · de tu stock: B850-E ASUS TUF WIFI.»
+function stockNote(list){if(!list.length)return '';const names=list.map(l=>l.name+(l.fromStock>1?' ×'+l.fromStock:'')+(l.fromStock<l.quantity?' ('+(l.quantity-l.fromStock)+' sin stock)':''));return ' · de tu stock: '+names.join(', ').slice(0,180);}
 // Un producto sin seleccionar del stock se vende igual: una unidad «Venta sin stock» por cantidad, sin cambiar el stock.
 function withManualInventory(receipt){const core=window.parent.AOSuiteCore;if(!receipt.customer.trim())receipt.customer='CLIENTES VARIOS';receipt.items.forEach(item=>{if(!item.description.trim())item.description='PRODUCTO';if(!item.unit.trim())item.unit='NIU';if(item.price.trim()==='')item.price='0';if(item.inventory?.length)return;const qty=quantityFromInput(item.quantity),price=centsFromInput(item.price);if(!qty||price===null)return;const name=(item.description.replace(/\s+/g,' ').trim()||'Producto').slice(0,350);item.inventoryMode='units';item.inventory=core.repriceParts(Array.from({length:qty},()=>({source:'external',name,supplier:'Venta sin stock',cost:'0.00',price:'0.00'})),price*qty);});return receipt;}
 function download(bytes,filename,mime){const blob=new Blob([bytes],{type:mime}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
@@ -113,7 +115,11 @@ async function exportPDF(){
  let snapshot=structuredClone(data);const sendRequested=$('sendEmail').checked;exporting=true;
  document.querySelectorAll('.export-btn').forEach(b=>{b.disabled=true;b.textContent='Guardando boleta…';});$('retryEmailBtn').disabled=true;
  try{
-  if(!viewingIssued){const saved=await cloud.issue(cloudReceiptId,withManualInventory(structuredClone(snapshot)));data=normalizeData(saved.payload);cloudReceiptId=saved.id;viewingIssued=true;autoAdvanceId=saved.id;showQuoteNotice('',[]);hydrate();$('sendEmail').checked=sendRequested;snapshot=structuredClone(data);saveDraft();cloud.saved();}
+  let fromStock=[];
+  if(!viewingIssued){
+   // Lo escrito a mano que está en tu stock se toma de tu stock (con su costo de Compras); lo demás se vende sin stock.
+   let request=structuredClone(snapshot);if(cloud.linkTypedStock){const result=await cloud.linkTypedStock(request);request=result.receipt;fromStock=result.linked;}
+   const saved=await cloud.issue(cloudReceiptId,withManualInventory(request));data=normalizeData(saved.payload);cloudReceiptId=saved.id;viewingIssued=true;autoAdvanceId=saved.id;showQuoteNotice('',[]);hydrate();$('sendEmail').checked=sendRequested;snapshot=structuredClone(data);saveDraft();cloud.saved();}
   const issuedId=cloudReceiptId;
   await cloud.ensureReceiptAvailable(issuedId);
   const bytes=await generatePDF(snapshot);
@@ -121,8 +127,8 @@ async function exportPDF(){
   download(bytes,filename('pdf',snapshot),'application/pdf');saveDraft();
   try{await cloud.upload(issuedId,bytes);}catch(e){copyWarning='No se pudo guardar la copia del PDF en la nube; puedes volver a exportarla desde el historial.';deliveryMessage('Boleta guardada y PDF descargado.',true,false);}
   if(cloudReceiptId!==issuedId||!viewingIssued)throw Error('La boleta fue eliminada. Crea una nueva con los datos correctos.');
-  if(sendRequested){pendingDelivery={requestId:crypto.randomUUID(),to:snapshot.email.trim(),customer:snapshot.customer,series:snapshot.series.toUpperCase(),number:snapshot.number,date:snapshot.date,total:formatMoney(calculate(snapshot).total),filename:filename('pdf',snapshot),pdfBase64:bytesToBase64(bytes)};if(await deliverPendingEmail())startNextReceipt('emitida y enviada');}
-  else{toast('Boleta guardada en la nube. PDF descargado para compartir.');startNextReceipt('emitida y guardada');}
+  if(sendRequested){pendingDelivery={requestId:crypto.randomUUID(),to:snapshot.email.trim(),customer:snapshot.customer,series:snapshot.series.toUpperCase(),number:snapshot.number,date:snapshot.date,total:formatMoney(calculate(snapshot).total),filename:filename('pdf',snapshot),pdfBase64:bytesToBase64(bytes)};if(await deliverPendingEmail())startNextReceipt('emitida y enviada'+stockNote(fromStock));}
+  else{toast('Boleta guardada en la nube. PDF descargado para compartir.');startNextReceipt('emitida y guardada'+stockNote(fromStock));}
  }catch(e){$('errorBox').textContent=e.message||'No se pudo guardar la boleta. Revisa tu conexión e inténtalo otra vez.';$('errorBox').hidden=false;toast($('errorBox').textContent);$('errorBox').scrollIntoView({behavior:'smooth',block:'center'});}
  finally{exporting=false;document.querySelectorAll('.export-btn').forEach(b=>b.disabled=!ready);$('retryEmailBtn').disabled=false;updateEmailButtons();}
 }

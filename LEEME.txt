@@ -11,9 +11,10 @@ En Mi web e Inventario puedes elegir En stock o Para reponer.
 Modificar stock corrige la cantidad; Reponer registra unidades nuevas con
 su costo de compra. Los agotados conservan su ficha y foto. Al agregar
 un producto se pregunta cuantas unidades ingresan; 0 lo deja Para reponer.
-Escanear stock: apunta la camara al codigo de barras o QR de la caja (o usa
-un lector USB) y se abre Reponer con 1 unidad. La primera vez que aparece un
-codigo eliges a que producto corresponde; despues se reconoce solo.
+Ingresar mercaderia: escanea la caja (camara o lector USB), indica unidades,
+costo en soles o dolares con su tipo de cambio, proveedor y fecha, y pulsa
+Registrar compra: queda en Compras con su stock. La primera vez que aparece
+un codigo eliges a que producto corresponde; despues se reconoce solo.
 El boton Modo claro / Modo oscuro cambia todo el panel y la tienda.
 Al sumar unidades, el costo de compra es opcional (vacio = S/ 0.00; se puede
 completar despues en Compras).
