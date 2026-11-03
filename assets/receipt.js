@@ -41,7 +41,10 @@ function normalizeData(input){
  base.items=input.items.map(item=>{if(!item||typeof item!=='object')throw Error('La copia contiene productos inválidos.');const it=newItem();for(const [key,max] of Object.entries({description:350,serial:140,code:22,unit:5,quantity:4,price:12}))it[key]=cleanText(item[key]??it[key]).slice(0,max).replace(/\s+/g,' ');it.inventory=Array.isArray(item.inventory)?structuredClone(item.inventory):[];it.inventoryMode=item.inventoryMode==="bundle"?"bundle":"units";return it;});return base;
 }
 let data=emptyReceipt(),fonts=null,scenes=[],pageIndex=0,saveTimer,previewTimer,toastTimer,showErrors=false,ready=false,canStore=true;
+let reopenedIssued='';
 try{const saved=localStorage.getItem(STORAGE_KEY);if(saved){const parsed=JSON.parse(saved);data=normalizeData(parsed.receipt||parsed);if(parsed.id){cloudReceiptId=parsed.id;viewingIssued=parsed.issued===true;}}}catch(e){canStore=false;}
+// Al volver a abrir el generador tras emitir, se empieza una boleta nueva: la emitida sigue en «Boletas emitidas».
+if(viewingIssued){reopenedIssued=data.series.toUpperCase()+'-'+data.number;viewingIssued=false;cloudReceiptId=crypto.randomUUID();data=emptyReceipt(/^\d{1,10}$/.test(data.number)?String(Number(data.number)+1):'110',data.series.toUpperCase(),data.observations);}
 // Al abrir el generador, la fecha del borrador se renueva con el día local del equipo.
 let lastDateCheck=today();
 if(!viewingIssued)data.date=lastDateCheck;
@@ -194,6 +197,8 @@ $('items').addEventListener('click',e=>{const b=e.target.closest('[data-remove]'
 $('addBtn').addEventListener('click',()=>{if(data.items.length>=MAX_ITEMS){toast('Puedes incluir hasta 100 productos por boleta.');return;}data.items.push(newItem());renderItems();update();queueSave();$(`description-${data.items.length-1}`).focus();});
 $('newBtn').addEventListener('click',async()=>{if(!viewingIssued&&hasContent()&&!confirm('¿Iniciar una nueva boleta? Se limpiará el borrador.'))return;viewingIssued=false;cloudReceiptId=crypto.randomUUID();data=emptyReceipt('110',data.series.toUpperCase(),data.observations);resetErrors();hydrate();saveDraft();await refreshCloudNumber();$('customer').focus();toast('Nueva boleta lista.');});
 
+$('issuedNotice').addEventListener('click',async e=>{const action=e.target.closest('[data-issued-action]')?.dataset.issuedAction;if(!action||exporting)return;if(action==='new'){$('newBtn').click();return;}
+ const copy=structuredClone(data);copy.date=today();copy.items.forEach(item=>{item.inventory=[];item.inventoryMode='units';});viewingIssued=false;autoAdvanceId=null;cloudReceiptId=crypto.randomUUID();data=copy;resetErrors();hydrate();saveDraft();await refreshCloudNumber();$('customer').focus();toast('Copia lista para editar con el número '+data.series.toUpperCase()+'-'+data.number+'. Si entregas productos de tu stock, vuelve a seleccionarlos.');});
 $('exampleBtn').addEventListener('click',()=>{if(hasContent()&&!confirm('¿Reemplazar el borrador actual por una boleta de ejemplo?'))return;viewingIssued=false;cloudReceiptId=crypto.randomUUID();data=emptyReceipt(data.number,data.series);data.customer='CLIENTE DE EJEMPLO';data.docType='NONE';data.items=[{description:'SSD NVMe 1 TB',serial:'',code:'SSD-01',unit:'NIU',quantity:'1',price:'480.00'}];resetErrors();hydrate();saveDraft();toast('Ejemplo: SSD por S/ 480.00. Puedes editar todos los datos.');});
 $('backupBtn').addEventListener('click',()=>{syncReceiptDate();download(JSON.stringify(data,null,2),filename('json'),'application/json');saveDraft();toast('Copia editable guardada. Recupérala con Abrir copia.');});
 $('importBtn').addEventListener('click',()=>$('importFile').click());
@@ -208,10 +213,12 @@ setInterval(syncReceiptDate,60000);
 async function init(){hydrate();if(canStore)saveDraft();if(!canStore)$('saveStatus').textContent='Usa Guardar copia para conservar tu boleta';try{const scratch=await PDFLib.PDFDocument.create();fonts=await embedReceiptFonts(scratch);await loadPreviewFonts();ready=true;refreshPreview();document.querySelectorAll('.export-btn').forEach(b=>b.disabled=false);}catch(e){$('preview').innerHTML='<div class="initial-error">No se pudo iniciar el generador. Descarga el archivo HTML completo y ábrelo en Chrome o Edge.</div>';console.error(e);}}
 init();
 initEmailService();
+if(reopenedIssued)toast('La boleta '+reopenedIssued+' ya está emitida (la encuentras en «Boletas emitidas»). Nueva boleta lista.');
 
 function lockIssuedFields(){
  document.querySelectorAll('[data-field],[data-item],[data-remove],[data-inventory]').forEach(el=>el.disabled=viewingIssued);
  $('number').readOnly=true;$('date').readOnly=true;$('addBtn').disabled=viewingIssued;
+ const notice=$('issuedNotice');notice.hidden=!viewingIssued;if(viewingIssued)notice.innerHTML=`<div class="quote-notice-head"><strong>La boleta ${escapeXML(data.series.toUpperCase()+'-'+data.number)} ya está emitida: no se puede modificar.</strong></div><p>Puedes descargar su PDF de nuevo, o empezar otra boleta.</p><div class="issued-actions"><button type="button" class="btn btn-primary" data-issued-action="new">Nueva boleta</button><button type="button" class="btn" data-issued-action="copy">Copiar en una boleta nueva</button></div>`;
  if(!viewingIssued)updateDocumentField();
  $('saveStatus').textContent=viewingIssued?'Boleta guardada en la nube · consulta disponible en el historial':'Borrador en este dispositivo · la venta se registra al emitir la boleta';
 }
